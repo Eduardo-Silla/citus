@@ -114,6 +114,7 @@ extern ObjectAddress AlterExtensionUpdateStmtObjectAddress(Node *stmt,
 extern bool ConstraintIsAForeignKeyToReferenceTable(char *constraintName,
 													Oid leftRelationId);
 extern void ErrorIfUnsupportedForeignConstraintExists(Relation relation,
+													  char referencingReplicationModel,
 													  char distributionMethod,
 													  Var *distributionColumn,
 													  uint32 colocationId);
@@ -248,6 +249,7 @@ extern void PostprocessAlterTableStmt(AlterTableStmt *pStmt);
 extern void ErrorUnsupportedAlterTableAddColumn(Oid relationId, AlterTableCmd *command,
 												Constraint *constraint);
 extern void ErrorIfUnsupportedConstraint(Relation relation, char distributionMethod,
+										 char referencingReplicationModel,
 										 Var *distributionColumn, uint32 colocationId);
 extern ObjectAddress AlterTableSchemaStmtObjectAddress(Node *stmt,
 													   bool missing_ok);

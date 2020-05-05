@@ -22,6 +22,7 @@
 #include "distributed/colocation_utils.h"
 #include "distributed/commands.h"
 #include "distributed/commands/utility_hook.h"
+#include "distributed/create_citus_local_table.h"
 #include "distributed/deparser.h"
 #include "distributed/deparse_shard_query.h"
 #include "distributed/listutils.h"
@@ -867,6 +868,7 @@ ErrorUnsupportedAlterTableAddColumn(Oid relationId, AlterTableCmd *command,
  */
 void
 ErrorIfUnsupportedConstraint(Relation relation, char distributionMethod,
+							 char referencingReplicationModel,
 							 Var *distributionColumn, uint32 colocationId)
 {
 	/*
@@ -877,6 +879,7 @@ ErrorIfUnsupportedConstraint(Relation relation, char distributionMethod,
 	 * and if they are OK, we do not error out for other types of constraints.
 	 */
 	ErrorIfUnsupportedForeignConstraintExists(relation, distributionMethod,
+											  referencingReplicationModel,
 											  distributionColumn,
 											  colocationId);
 
@@ -1397,7 +1400,6 @@ InterShardDDLTaskList(Oid leftRelationId, Oid rightRelationId,
 	char *leftSchemaName = get_namespace_name(leftSchemaId);
 	char *escapedLeftSchemaName = quote_literal_cstr(leftSchemaName);
 
-	char rightPartitionMethod = PartitionMethod(rightRelationId);
 	List *rightShardList = LoadShardIntervalList(rightRelationId);
 	ListCell *rightShardCell = NULL;
 	Oid rightSchemaId = get_rel_namespace(rightRelationId);
@@ -1409,21 +1411,22 @@ InterShardDDLTaskList(Oid leftRelationId, Oid rightRelationId,
 	int taskId = 1;
 
 	/*
-	 * If the rightPartitionMethod is a reference table, we need to make sure
-	 * that the tasks are created in a way that the right shard stays the same
-	 * since we only have one placement per worker. This hack is first implemented
-	 * for foreign constraint support from distributed tables to reference tables.
+	 * If the right relation is a reference table and left relation is not a citus
+	 * local table, we need to make sure that the tasks are created in a way that
+	 * the right shard stays the same since we only have one placement per worker.
+	 * If left relation is a citus local table, then we don't need to populate
+	 * reference table shards as we will set foreign key only on reference table's
+	 * coordinator placement.
 	 */
-	if (rightPartitionMethod == DISTRIBUTE_BY_NONE)
+	if (IsReferenceTable(rightRelationId) && !IsCitusLocalTable(leftRelationId))
 	{
-		int rightShardCount = list_length(rightShardList);
+		int rightShardCount PG_USED_FOR_ASSERTS_ONLY = list_length(rightShardList);
 		int leftShardCount = list_length(leftShardList);
 
 		Assert(rightShardCount == 1);
 
 		ShardInterval *rightShardInterval = (ShardInterval *) linitial(rightShardList);
-		for (int shardCounter = rightShardCount; shardCounter < leftShardCount;
-			 shardCounter++)
+		for (int shardCounter = 1; shardCounter < leftShardCount; shardCounter++)
 		{
 			rightShardList = lappend(rightShardList, rightShardInterval);
 		}
@@ -1461,7 +1464,22 @@ InterShardDDLTaskList(Oid leftRelationId, Oid rightRelationId,
 		task->dependentTaskList = NULL;
 		task->replicationModel = REPLICATION_MODEL_INVALID;
 		task->anchorShardId = leftShardId;
-		task->taskPlacementList = ActiveShardPlacementList(leftShardId);
+
+		if (IsReferenceTable(leftRelationId) && IsCitusLocalTable(rightRelationId))
+		{
+			/*
+			 * If we are defining foreign key from a reference table to a citus
+			 * local table, then we will set foreign key only on reference table's
+			 * coordinator placement.
+			 */
+			task->taskPlacementList = GroupShardPlacementsForTableOnGroup(leftRelationId,
+																		  COORDINATOR_GROUP_ID);
+		}
+		else
+		{
+			task->taskPlacementList = ActiveShardPlacementList(leftShardId);
+		}
+
 		task->relationShardList = list_make2(leftRelationShard, rightRelationShard);
 
 		taskList = lappend(taskList, task);
@@ -1520,12 +1538,14 @@ ErrorIfUnsupportedAlterAddConstraintStmt(AlterTableStmt *alterTableStatement)
 	LOCKMODE lockmode = AlterTableGetLockLevel(alterTableStatement->cmds);
 	Oid relationId = AlterTableLookupRelation(alterTableStatement, lockmode);
 	char distributionMethod = PartitionMethod(relationId);
+	char referencingReplicationModel = TableReplicationModel(relationId);
 	Var *distributionColumn = DistPartitionKey(relationId);
 	uint32 colocationId = TableColocationId(relationId);
 	Relation relation = relation_open(relationId, ExclusiveLock);
 
-	ErrorIfUnsupportedConstraint(relation, distributionMethod, distributionColumn,
-								 colocationId);
+	ErrorIfUnsupportedConstraint(relation, distributionMethod,
+								 referencingReplicationModel,
+								 distributionColumn, colocationId);
 	relation_close(relation, NoLock);
 }
 

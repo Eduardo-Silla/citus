@@ -392,7 +392,7 @@ NOTICE:  executing the command locally: SELECT worker_apply_inter_shard_ddl_comm
 ALTER TABLE citus_local_table_1 ADD CONSTRAINT fkey_c_to_dist FOREIGN KEY(a) references distributed_table(a);
 ERROR:  cannot create foreign key constraint since foreign keys from reference tables to distributed tables are not supported
 ALTER TABLE distributed_table ADD CONSTRAINT fkey_dist_to_c FOREIGN KEY(a) references citus_local_table_1(a);
-ERROR:  relation "citus_local_tables_test_schema.citus_local_table_1_1504027" does not exist
+ERROR:  cannot create foreign key constraint since relations are not colocated or not referencing a reference table
 -- between citus local tables and local tables
 ALTER TABLE citus_local_table_1 ADD CONSTRAINT fkey_c_to_local FOREIGN KEY(a) references local_table(a);
 ERROR:  cannot create foreign key constraint

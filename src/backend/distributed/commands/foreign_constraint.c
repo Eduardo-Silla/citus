@@ -23,6 +23,7 @@
 #include "catalog/pg_type.h"
 #include "distributed/colocation_utils.h"
 #include "distributed/commands.h"
+#include "distributed/create_citus_local_table.h"
 #include "distributed/listutils.h"
 #include "distributed/coordinator_protocol.h"
 #include "distributed/multi_join_order.h"
@@ -35,6 +36,11 @@
 #include "utils/relcache.h"
 #include "utils/ruleutils.h"
 #include "utils/syscache.h"
+
+
+#define BehaviorIsRestrictOrNoAction(x) \
+	((x) == FKCONSTR_ACTION_NOACTION || (x) == FKCONSTR_ACTION_RESTRICT)
+
 
 /* Local functions forward declarations */
 static bool HeapTupleOfForeignConstraintIncludesColumn(HeapTuple heapTuple,
@@ -89,6 +95,7 @@ ConstraintIsAForeignKeyToReferenceTable(char *inputConstaintName, Oid relationId
  */
 void
 ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDistMethod,
+										  char referencingReplicationModel,
 										  Var *referencingDistKey,
 										  uint32 referencingColocationId)
 {
@@ -141,6 +148,7 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 
 		/* set referenced table related variables here if table is referencing itself */
 
+		char referencedReplicationModel = REPLICATION_MODEL_INVALID;
 		if (!selfReferencingTable)
 		{
 			referencedDistMethod = PartitionMethod(referencedTableId);
@@ -148,32 +156,48 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 								NULL :
 								DistPartitionKey(referencedTableId);
 			referencedColocationId = TableColocationId(referencedTableId);
+			referencedReplicationModel = TableReplicationModel(referencedTableId);
 		}
 		else
 		{
 			referencedDistMethod = referencingDistMethod;
 			referencedDistKey = referencingDistKey;
 			referencedColocationId = referencingColocationId;
+			referencedReplicationModel = referencingReplicationModel;
 		}
 
-		bool referencingIsReferenceTable = (referencingDistMethod == DISTRIBUTE_BY_NONE);
-		bool referencedIsReferenceTable = (referencedDistMethod == DISTRIBUTE_BY_NONE);
+		bool referencingIsNoneDistTable = (referencingDistMethod == DISTRIBUTE_BY_NONE);
+		bool referencedIsNoneDistTable = (referencedDistMethod == DISTRIBUTE_BY_NONE);
 
-		/*
-		 * We support foreign keys between reference tables. No more checks
-		 * are necessary.
-		 */
-		if (referencingIsReferenceTable && referencedIsReferenceTable)
+		if (referencingIsNoneDistTable && referencedIsNoneDistTable)
 		{
+			bool referencingIsReferenceTable =
+				(referencingReplicationModel == REPLICATION_MODEL_2PC);
+			bool referencedIsCitusLocalTable =
+				(referencedReplicationModel != REPLICATION_MODEL_2PC);
+			if (referencingIsReferenceTable && referencedIsCitusLocalTable)
+			{
+				if (!(BehaviorIsRestrictOrNoAction(constraintForm->confdeltype) &&
+					  BehaviorIsRestrictOrNoAction(constraintForm->confupdtype)))
+				{
+					ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+									errmsg("cannot specify ON DELETE/UPDATE "
+										   "\"CASCADE/SET NULL/SET DEFAULT\" "
+										   "behaviors for foreign key constraints "
+										   "from reference tables to citus local "
+										   "tables")));
+				}
+			}
+
 			ReleaseSysCache(heapTuple);
 			continue;
 		}
 
 		/*
-		 * Foreign keys from reference tables to distributed tables are not
+		 * Foreign keys from none dist. tables to distributed tables are not
 		 * supported.
 		 */
-		if (referencingIsReferenceTable && !referencedIsReferenceTable)
+		if (referencingIsNoneDistTable && !referencedIsNoneDistTable)
 		{
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							errmsg("cannot create foreign key constraint "
@@ -187,6 +211,8 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 		 * To enforce foreign constraints, tables must be co-located unless a
 		 * reference table is referenced.
 		 */
+		bool referencedIsReferenceTable =
+			(referencedReplicationModel == REPLICATION_MODEL_2PC);
 		if (referencingColocationId == INVALID_COLOCATION_ID ||
 			(referencingColocationId != referencedColocationId &&
 			 !referencedIsReferenceTable))
@@ -255,7 +281,7 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 		 * if tables are hash-distributed and colocated, we need to make sure that
 		 * the distribution key is included in foreign constraint.
 		 */
-		if (!referencedIsReferenceTable && !foreignConstraintOnDistKey)
+		if (!referencedIsNoneDistTable && !foreignConstraintOnDistKey)
 		{
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							errmsg("cannot create foreign key constraint"),

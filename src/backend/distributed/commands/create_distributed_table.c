@@ -790,8 +790,8 @@ EnsureRelationCanBeDistributed(Oid relationId, Var *distributionColumn,
 		}
 	}
 
-	ErrorIfUnsupportedConstraint(relation, distributionMethod, distributionColumn,
-								 colocationId);
+	ErrorIfUnsupportedConstraint(relation, distributionMethod, replicationModel,
+								 distributionColumn, colocationId);
 
 
 	ErrorIfUnsupportedPolicy(relation);
