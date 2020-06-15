@@ -534,6 +534,23 @@ GetTableDDLEvents(Oid relationId, bool includeSequenceDefaults)
 															  includeSequenceDefaults);
 	tableDDLEventList = list_concat(tableDDLEventList, tableCreationCommandList);
 
+	List *otherCommands = GetTableConstructionCommands(relationId);
+	tableDDLEventList = list_concat(tableDDLEventList, otherCommands);
+
+	return tableDDLEventList;
+}
+
+
+/*
+ * GetTableConstructionCommands takes in a relationId and returns the list
+ * of DDL commands needed to reconstruct the relation except the ones that actually
+ * create the table.
+ */
+List *
+GetTableConstructionCommands(Oid relationId)
+{
+	List *tableDDLEventList = NIL;
+
 	List *indexAndConstraintCommandList = GetTableIndexAndConstraintCommands(relationId);
 	tableDDLEventList = list_concat(tableDDLEventList, indexAndConstraintCommandList);
 

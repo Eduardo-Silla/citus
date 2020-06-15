@@ -224,13 +224,30 @@ master_drop_all_shards(PG_FUNCTION_ARGS)
 
 	CheckCitusVersion(ERROR);
 
-	/*
-	 * The SQL_DROP trigger calls this function even for tables that are
-	 * not distributed. In that case, silently ignore and return -1.
-	 */
-	if (!IsCitusTable(relationId) || !EnableDDLPropagation)
+	if (!EnableDDLPropagation)
 	{
 		PG_RETURN_INT32(-1);
+	}
+
+	int returnValue = MasterDropAllShards(relationId, schemaName, relationName);
+
+	PG_RETURN_INT32(returnValue);
+}
+
+
+/*
+ * MasterDropAllShards attempts to drop all shards for a given relation.
+ */
+int
+MasterDropAllShards(Oid relationId, char *schemaName, char *relationName)
+{
+	/*
+	 * The SQL_DROP trigger calls master_drop_all_shards even for tables that
+	 * are not distributed. In that case, silently ignore and return -1.
+	 */
+	if (!IsCitusTable(relationId))
+	{
+		return -1;
 	}
 
 	EnsureCoordinator();
@@ -248,7 +265,7 @@ master_drop_all_shards(PG_FUNCTION_ARGS)
 	int droppedShardCount = DropShards(relationId, schemaName, relationName,
 									   shardIntervalList);
 
-	PG_RETURN_INT32(droppedShardCount);
+	return droppedShardCount;
 }
 
 

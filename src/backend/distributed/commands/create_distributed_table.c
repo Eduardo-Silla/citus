@@ -12,6 +12,7 @@
 #include "miscadmin.h"
 
 #include "distributed/pg_version_constants.h"
+#include "distributed/commands/utility_hook.h"
 
 #include "access/genam.h"
 #include "access/hash.h"
@@ -33,15 +34,18 @@
 #include "catalog/pg_trigger.h"
 #include "commands/defrem.h"
 #include "commands/extension.h"
+#include "commands/tablecmds.h"
 #include "commands/trigger.h"
 #include "distributed/commands/multi_copy.h"
 #include "distributed/citus_ruleutils.h"
 #include "distributed/colocation_utils.h"
 #include "distributed/commands.h"
+#include "distributed/deparser.h"
 #include "distributed/distribution_column.h"
 #include "distributed/listutils.h"
 #include "distributed/metadata_utility.h"
 #include "distributed/coordinator_protocol.h"
+#include "distributed/metadata/distobject.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/metadata_sync.h"
 #include "distributed/multi_executor.h"
@@ -124,6 +128,7 @@ static void DoCopyFromLocalTableIntoShards(Relation distributedRelation,
 PG_FUNCTION_INFO_V1(master_create_distributed_table);
 PG_FUNCTION_INFO_V1(create_distributed_table);
 PG_FUNCTION_INFO_V1(create_reference_table);
+PG_FUNCTION_INFO_V1(undistribute_table);
 
 
 /*
@@ -322,6 +327,131 @@ EnsureCitusTableCanBeCreated(Oid relationOid)
 	 * will be performed in CreateDistributedTable.
 	 */
 	EnsureRelationKindSupported(relationOid);
+}
+
+
+/*
+ * undistribute_table gets a distributed table name and
+ * udistributes the table.
+ */
+Datum
+undistribute_table(PG_FUNCTION_ARGS)
+{
+	CheckCitusVersion(ERROR);
+	EnsureCoordinator();
+
+	Oid relationId = PG_GETARG_OID(0);
+
+	if (!IsCitusTable(relationId))
+	{
+		ereport(ERROR, (errmsg("Cannot undistribute relation."),
+						errdetail("The relation is not distributed.")));
+	}
+
+	EnsureTableOwner(relationId);
+	Relation relation = try_relation_open(relationId, ExclusiveLock);
+
+	if (relation == NULL)
+	{
+		ereport(ERROR, (errmsg("Cannot undistribute relation"),
+						errdetail("No such distributed relation exists. "
+								  "Might have already been undistributed.")));
+	}
+
+	char *relationName = get_rel_name(relationId);
+
+	Oid schemaId = get_rel_namespace(relationId);
+	char *schemaName = get_namespace_name(schemaId);
+
+
+	if (TableReferencing(relationId))
+	{
+		ereport(ERROR, (errmsg("Cannot undistribute table "
+							   "because it has a foreign key.")));
+	}
+
+	if (TableReferenced(relationId))
+	{
+		ereport(ERROR, (errmsg("Cannot undistribute table "
+							   "because a foreign key references to it.")));
+	}
+
+	if (PartitionedTable(relationId))
+	{
+		ereport(ERROR, (errmsg("Cannot undistribute partitioned tables.")));
+	}
+
+	StringInfo query = makeStringInfo();
+
+	int spiConnectionResult = SPI_connect();
+	if (spiConnectionResult != SPI_OK_CONNECT)
+	{
+		ereport(ERROR, (errmsg("could not connect to SPI manager")));
+	}
+
+	List *tableConstructionCommands = GetTableConstructionCommands(relationId);
+	List *tableCreationCommands = GetTableCreationCommands(relationId, true);
+
+	char *tempName = pstrdup(relationName);
+	uint32 hashOfName = hash_any((unsigned char *) tempName, strlen(tempName));
+	AppendShardIdToName(&tempName, hashOfName);
+
+	char *tableCreationQuery = NULL;
+	foreach_ptr(tableCreationQuery, tableCreationCommands)
+	{
+		Node *parseTree = ParseTreeNode(tableCreationQuery);
+
+		if (nodeTag(parseTree) == T_CreateStmt ||
+			nodeTag(parseTree) == T_AlterOwnerStmt ||
+			nodeTag(parseTree) == T_AlterTableStmt)
+		{
+			RelayEventExtendNames(parseTree, schemaName, hashOfName);
+			CitusProcessUtility(parseTree, tableCreationQuery, PROCESS_UTILITY_TOPLEVEL,
+								NULL, None_Receiver, NULL);
+		}
+	}
+
+	resetStringInfo(query);
+	appendStringInfo(query, "INSERT INTO %s SELECT * FROM %s",
+					 quote_qualified_identifier(schemaName, tempName),
+					 quote_qualified_identifier(schemaName, relationName));
+	SPI_execute(query->data, false, 0);
+
+	List *ownedSequences = getOwnedSequences(relationId, InvalidAttrNumber);
+
+	Oid sequenceOid = InvalidOid;
+	Oid newRelationId = get_relname_relid(tempName, schemaId);
+	foreach_oid(sequenceOid, ownedSequences)
+	{
+		changeDependencyFor(RelationRelationId, sequenceOid,
+							RelationRelationId, relationId, newRelationId);
+	}
+
+	relation_close(relation, NoLock);
+
+	resetStringInfo(query);
+	appendStringInfo(query, "DROP TABLE %s",
+					 quote_qualified_identifier(schemaName, relationName));
+	SPI_execute(query->data, false, 0);
+
+#if PG_VERSION_NUM >= PG_VERSION_12
+	RenameRelationInternal(get_relname_relid(tempName, schemaId),
+						   relationName, false, false);
+#else
+	RenameRelationInternal(get_relname_relid(tempName, schemaId),
+						   relationName, false);
+#endif
+
+	char *ddl = NULL;
+
+	foreach_ptr(ddl, tableConstructionCommands)
+	{
+		SPI_execute(ddl, false, 0);
+	}
+
+	SPI_finish();
+
+	PG_RETURN_BOOL(true);
 }
 
 
