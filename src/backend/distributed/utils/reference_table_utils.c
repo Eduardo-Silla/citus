@@ -71,6 +71,11 @@ IsReferenceTable(Oid relationId)
 		return false;
 	}
 
+	if (tableEntry->replicationModel != REPLICATION_MODEL_2PC)
+	{
+		return false;
+	}
+
 	return true;
 }
 
