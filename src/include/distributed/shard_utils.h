@@ -14,6 +14,9 @@
 #include "postgres.h"
 
 extern Oid GetTableLocalShardOid(Oid citusTableOid, uint64 shardId);
-extern Oid GetReferenceTableLocalShardOid(Oid referenceTableOid);
+extern Oid GetNoneDistTableLocalShardRelationId(Oid noneDistTableId);
+extern uint64 GetNoneDistTableShardId(Oid noneDistTableId);
+extern void AppendNoneDistTableShardIdToName(Oid noneDistTableId, char **name);
+extern RangeVar * MakeRangeVarForNoneDistTableLocalShard(Oid noneDistTableId);
 
 #endif /* SHARD_UTILS_H */

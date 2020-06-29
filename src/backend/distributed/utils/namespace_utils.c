@@ -12,7 +12,9 @@
 #include "postgres.h"
 
 #include "catalog/namespace.h"
+#include "distributed/citus_ruleutils.h"
 #include "distributed/namespace_utils.h"
+#include "utils/regproc.h"
 
 /*
  * PushOverrideEmptySearchPath pushes search_path to be NIL and sets addCatalog to
@@ -27,4 +29,18 @@ PushOverrideEmptySearchPath(MemoryContext memoryContext)
 	overridePath->addCatalog = true;
 
 	PushOverrideSearchPath(overridePath);
+}
+
+
+/*
+ * MakeQualifiedNameListFromRelationId returns qualified name list for the relation
+ * with relationId.
+ */
+List *
+MakeQualifiedNameListFromRelationId(Oid relationId)
+{
+	char *qualifiedRelationName = generate_qualified_relation_name(relationId);
+	List *qualifiedNameList = stringToQualifiedNameList(qualifiedRelationName);
+
+	return qualifiedNameList;
 }

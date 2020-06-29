@@ -211,13 +211,6 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 		parsetree = ProcessCreateSubscriptionStmt(createSubStmt);
 	}
 
-	if (IsA(parsetree, CreateTrigStmt))
-	{
-		CreateTrigStmt *createTriggerStmt = (CreateTrigStmt *) parsetree;
-
-		ErrorIfUnsupportedCreateTriggerCommand(createTriggerStmt);
-	}
-
 	if (IsA(parsetree, CallStmt))
 	{
 		CallStmt *callStmt = (CallStmt *) parsetree;
@@ -375,7 +368,7 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 
 	if (IsA(parsetree, TruncateStmt))
 	{
-		PostprocessTruncateStatement((TruncateStmt *) parsetree);
+		PreprocessTruncateStatement((TruncateStmt *) parsetree);
 	}
 
 	/* only generate worker DDLJobs if propagation is enabled */
@@ -834,6 +827,15 @@ PostStandardProcessUtility(Node *parsetree)
 	 * before ExecuteDistributedDDLJob().
 	 */
 	InvalidateForeignKeyGraphForDDL();
+
+	/*
+	 * We disable truncate triggers on citus local tables to be truncated
+	 * temporarily. Revert their enable/disable states back.
+	 */
+	if (IsA(parsetree, TruncateStmt))
+	{
+		RevertTruncateTriggersEnableDisableStates();
+	}
 }
 
 

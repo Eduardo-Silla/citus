@@ -10,8 +10,11 @@
  */
 
 #include "postgres.h"
+
+#include "catalog/namespace.h"
 #include "utils/lsyscache.h"
 #include "distributed/metadata_cache.h"
+#include "distributed/namespace_utils.h"
 #include "distributed/relay_utility.h"
 #include "distributed/shard_utils.h"
 
@@ -39,20 +42,58 @@ GetTableLocalShardOid(Oid citusTableOid, uint64 shardId)
 
 
 /*
- * GetReferenceTableLocalShardOid returns OID of the local shard of given
- * reference table. Caller of this function must ensure that referenceTableOid
- * is owned by a reference table.
+ * GetNoneDistTableLocalShardRelationId returns relation id for local shard of
+ * DISTRIBUTE_BY_NONE table with noneDistTableId. Caller of this function must
+ * ensure that and input relation has a local shard placement in current node.
  */
 Oid
-GetReferenceTableLocalShardOid(Oid referenceTableOid)
+GetNoneDistTableLocalShardRelationId(Oid noneDistTableId)
 {
-	const CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(referenceTableOid);
+	uint64 shardId = GetNoneDistTableShardId(noneDistTableId);
+	return GetTableLocalShardOid(noneDistTableId, shardId);
+}
 
-	/* given OID should belong to a valid reference table */
+
+/*
+ * GetNoneDistTableShardId takes noneDistTableId that identifies a DISTRIBUTE_BY_NONE
+ * table and returns the shard id for its one and only shard.
+ */
+uint64
+GetNoneDistTableShardId(Oid noneDistTableId)
+{
+	const CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(noneDistTableId);
+
+	/* given OID should belong to a valid DISTRIBUTE_BY_NONE table */
 	Assert(cacheEntry != NULL && cacheEntry->partitionMethod == DISTRIBUTE_BY_NONE);
 
 	const ShardInterval *shardInterval = cacheEntry->sortedShardIntervalArray[0];
-	uint64 referenceTableShardId = shardInterval->shardId;
+	uint64 shardId = shardInterval->shardId;
 
-	return GetTableLocalShardOid(referenceTableOid, referenceTableShardId);
+	return shardId;
+}
+
+
+/*
+ * AppendNoneDistTableShardIdToName appends shard id for DISTRIBUTE_BY_NONE
+ * relation with noneDistTableId to "name" string.
+ */
+void
+AppendNoneDistTableShardIdToName(Oid noneDistTableId, char **name)
+{
+	uint64 shardId = GetNoneDistTableShardId(noneDistTableId);
+	AppendShardIdToName(name, shardId);
+}
+
+
+/*
+ * MakeRangeVarForNoneDistTableLocalShard returns qualified RangeVar for
+ * local shard relation of DISTRIBUTE_BY_NONE table with noneDistTableId.
+ */
+RangeVar *
+MakeRangeVarForNoneDistTableLocalShard(Oid noneDistTableId)
+{
+	Oid shardRelationId = GetNoneDistTableLocalShardRelationId(noneDistTableId);
+	List *qualifiedNameList = MakeQualifiedNameListFromRelationId(shardRelationId);
+
+	return makeRangeVarFromNameList(qualifiedNameList);
 }

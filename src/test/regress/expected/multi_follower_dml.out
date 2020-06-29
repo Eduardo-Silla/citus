@@ -74,7 +74,8 @@ SELECT * FROM the_table ORDER BY a;
 DELETE FROM the_table;
 -- DDL is not possible
 TRUNCATE the_table;
-ERROR:  cannot execute TRUNCATE TABLE in a read-only transaction
+ERROR:  cannot acquire lock mode ShareRowExclusiveLock on database objects while recovery is in progress
+HINT:  Only RowExclusiveLock or less can be acquired on database objects during recovery.
 ALTER TABLE the_table ADD COLUMN c int;
 ERROR:  cannot acquire lock mode AccessExclusiveLock on database objects while recovery is in progress
 HINT:  Only RowExclusiveLock or less can be acquired on database objects during recovery.

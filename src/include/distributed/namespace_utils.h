@@ -11,5 +11,6 @@
 #define NAMESPACE_UTILS_H
 
 extern void PushOverrideEmptySearchPath(MemoryContext memoryContext);
+extern List * MakeQualifiedNameListFromRelationId(Oid relationId);
 
 #endif /* NAMESPACE_UTILS_H */

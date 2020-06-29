@@ -244,6 +244,33 @@ RelayEventExtendNames(Node *parseTree, char *schemaName, uint64 shardId)
 			break;
 		}
 
+		case T_CreateTrigStmt:
+		{
+			CreateTrigStmt *createTriggerStmt = (CreateTrigStmt *) parseTree;
+			CreateTriggerEventExtendNames(createTriggerStmt, schemaName, shardId);
+			break;
+		}
+
+		case T_AlterObjectDependsStmt:
+		{
+			AlterObjectDependsStmt *alterTriggerDependsStmt =
+				(AlterObjectDependsStmt *) parseTree;
+			ObjectType objectType = alterTriggerDependsStmt->objectType;
+
+			if (objectType == OBJECT_TRIGGER)
+			{
+				AlterTriggerDependsEventExtendNames(alterTriggerDependsStmt,
+													schemaName, shardId);
+			}
+			else
+			{
+				ereport(WARNING, (errmsg("unsafe object type in alter object "
+										 "depends statement"),
+								  errdetail("Object type: %u", (uint32) objectType)));
+			}
+			break;
+		}
+
 		case T_DropStmt:
 		{
 			DropStmt *dropStmt = (DropStmt *) parseTree;
@@ -317,6 +344,10 @@ RelayEventExtendNames(Node *parseTree, char *schemaName, uint64 shardId)
 			else if (objectType == OBJECT_POLICY)
 			{
 				DropPolicyEventExtendNames(dropStmt, schemaName, shardId);
+			}
+			else if (objectType == OBJECT_TRIGGER)
+			{
+				DropTriggerEventExtendNames(dropStmt, schemaName, shardId);
 			}
 			else
 			{
@@ -464,7 +495,7 @@ RelayEventExtendNames(Node *parseTree, char *schemaName, uint64 shardId)
 								 *newRelationName, NAMEDATALEN - 1)));
 				}
 			}
-			else if (objectType == OBJECT_COLUMN || objectType == OBJECT_TRIGGER)
+			else if (objectType == OBJECT_COLUMN)
 			{
 				char **relationName = &(renameStmt->relation->relname);
 				char **objectSchemaName = &(renameStmt->relation->schemaname);
@@ -473,6 +504,10 @@ RelayEventExtendNames(Node *parseTree, char *schemaName, uint64 shardId)
 				SetSchemaNameIfNotExist(objectSchemaName, schemaName);
 
 				AppendShardIdToName(relationName, shardId);
+			}
+			else if (objectType == OBJECT_TRIGGER)
+			{
+				AlterTriggerRenameEventExtendNames(renameStmt, schemaName, shardId);
 			}
 			else if (objectType == OBJECT_POLICY)
 			{

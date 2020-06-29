@@ -255,7 +255,9 @@ extern List * MakeNameListFromRangeVar(const RangeVar *rel);
 
 
 /* truncate.c - forward declarations */
-extern void PostprocessTruncateStatement(TruncateStmt *truncateStatement);
+extern void PreprocessTruncateStatement(TruncateStmt *truncateStatement);
+extern void DisableTruncateTriggersIfNecessary(TruncateStmt *truncateStatement);
+extern void RevertTruncateTriggersEnableDisableStates(void);
 
 /* type.c - forward declarations */
 extern List * PreprocessCompositeTypeStmt(Node *stmt, const char *queryString);
@@ -298,9 +300,24 @@ extern void PostprocessVacuumStmt(VacuumStmt *vacuumStmt, const char *vacuumComm
 extern List * GetExplicitTriggerCommandList(Oid relationId);
 extern List * GetExplicitTriggerNameList(Oid relationId);
 extern char * GetTriggerNameById(Oid triggerId);
+extern HeapTuple GetTriggerTupleById(Oid triggerId);
+extern List * FilterTriggerIdListByEvent(List *triggerIdList, int16 events);
 extern List * GetExplicitTriggerIdList(Oid relationId);
 extern Oid get_relation_trigger_oid_compat(HeapTuple heapTuple);
 extern void ErrorIfUnsupportedCreateTriggerCommand(CreateTrigStmt *createTriggerStmt);
+extern List * PostprocessCreateTriggerStmt(Node *node, const char *commandString);
+extern void CreateTriggerEventExtendNames(CreateTrigStmt *createTriggerStmt,
+										  char *schemaName, uint64 shardId);
+extern List * PostprocessAlterTriggerRenameStmt(Node *node, const char *commandString);
+extern void AlterTriggerRenameEventExtendNames(RenameStmt *renameTriggerStmt,
+											   char *schemaName, uint64 shardId);
+extern List * PostprocessAlterTriggerDependsStmt(Node *node, const char *commandString);
+extern void AlterTriggerDependsEventExtendNames(
+	AlterObjectDependsStmt *alterTriggerDependsStmt,
+	char *schemaName, uint64 shardId);
+extern List * PostprocessDropTriggerStmt(Node *node, const char *commandString);
+extern void DropTriggerEventExtendNames(DropStmt *dropTriggerStmt, char *schemaName,
+										uint64 shardId);
 
 extern bool ShouldPropagateSetCommand(VariableSetStmt *setStmt);
 extern void PostprocessVariableSetStmt(VariableSetStmt *setStmt, const char *setCommand);

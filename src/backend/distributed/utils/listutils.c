@@ -204,3 +204,31 @@ ListTake(List *pointerList, int size)
 
 	return result;
 }
+
+
+/*
+ * SplitLastPointerElement takes a pointer list and splits the last pointer
+ * element to lastElement and assigns rest of the list to the allButLast list
+ * pointer if arguments are passed as non-null pointers.
+ */
+void
+SplitLastPointerElement(List *inputList, List **allButLast, void **lastElement)
+{
+	Assert(IsPointerList(inputList));
+
+	int inputListLength = list_length(inputList);
+	if (inputListLength == 0)
+	{
+		ereport(ERROR, (errmsg("cannot split an empty list")));
+	}
+
+	if (lastElement)
+	{
+		*lastElement = llast(inputList);
+	}
+
+	if (allButLast)
+	{
+		*allButLast = list_truncate(list_copy(inputList), inputListLength - 1);
+	}
+}

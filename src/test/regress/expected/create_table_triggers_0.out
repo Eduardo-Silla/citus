@@ -33,11 +33,11 @@ SELECT create_reference_table('reference_table');
 CREATE TRIGGER update_value_dist
 AFTER INSERT ON distributed_table
 FOR EACH ROW EXECUTE PROCEDURE update_value();
-ERROR:  cannot create trigger on relation "distributed_table" because it is either a distributed table or a reference table
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "distributed_table" because it is either a distributed table or a reference table
 CREATE TRIGGER update_value_ref
 AFTER INSERT ON reference_table
 FOR EACH ROW EXECUTE PROCEDURE update_value();
-ERROR:  cannot create trigger on relation "reference_table" because it is either a distributed table or a reference table
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "reference_table" because it is either a distributed table or a reference table
 ---------------------------------------------------------------------
 -- show that we do not allow creating citus tables if the
 -- table has already triggers
