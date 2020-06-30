@@ -96,8 +96,8 @@ RelayEventExtendNames(Node *parseTree, char *schemaName, uint64 shardId)
 		case T_AlterTableStmt:
 		{
 			/*
-			 * We append shardId to the very end of table and index names to
-			 * avoid name collisions. We also append shardId to constraint names.
+			 * We append shardId to the very end of table and index, constraint
+			 * and trigger names to avoid name collisions.
 			 */
 
 			AlterTableStmt *alterTableStmt = (AlterTableStmt *) parseTree;
@@ -166,6 +166,14 @@ RelayEventExtendNames(Node *parseTree, char *schemaName, uint64 shardId)
 						char **indexName = &(replicaIdentity->name);
 						AppendShardIdToName(indexName, shardId);
 					}
+				}
+				else if (command->subtype == AT_EnableTrig ||
+						 command->subtype == AT_DisableTrig ||
+						 command->subtype == AT_EnableAlwaysTrig ||
+						 command->subtype == AT_EnableReplicaTrig)
+				{
+					char **triggerName = &(command->name);
+					AppendShardIdToName(triggerName, shardId);
 				}
 			}
 

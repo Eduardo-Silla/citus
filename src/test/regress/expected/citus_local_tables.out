@@ -147,7 +147,7 @@ BEGIN;
 
   -- cannot attach citus local table to a partitioned distributed table
   ALTER TABLE partitioned_table ATTACH PARTITION citus_local_table FOR VALUES FROM (20) TO (30);
-ERROR:  distributed tables cannot have non-colocated distributed tables as a partition
+ERROR:  cannot execute ATTACH/DETACH PARTITION command as citus local tables cannot be involved in partition relationships with other tables
 ROLLBACK;
 -- show that we do not support inheritance relationships --
 CREATE TABLE parent_table (a int, b text);
@@ -388,7 +388,6 @@ ALTER TABLE citus_local_table_1 ADD CONSTRAINT fkey_c_to_ref FOREIGN KEY(a) refe
 NOTICE:  executing the command locally: SELECT worker_apply_inter_shard_ddl_command (1504027, 'citus_local_tables_test_schema', 1504033, 'citus_local_tables_test_schema', 'ALTER TABLE citus_local_table_1 ADD CONSTRAINT fkey_c_to_ref FOREIGN KEY(a) references reference_table(a);')
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_c FOREIGN KEY(a) references citus_local_table_1(a);
 NOTICE:  executing the command locally: SELECT worker_apply_inter_shard_ddl_command (1504033, 'citus_local_tables_test_schema', 1504027, 'citus_local_tables_test_schema', 'ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_c FOREIGN KEY(a) references citus_local_table_1(a);')
-ERROR:  relation "citus_local_tables_test_schema.citus_local_table_1_1504027" does not exist
 -- between citus local tables and distributed tables
 ALTER TABLE citus_local_table_1 ADD CONSTRAINT fkey_c_to_dist FOREIGN KEY(a) references distributed_table(a);
 ERROR:  cannot create foreign key constraint since foreign keys from reference tables to distributed tables are not supported

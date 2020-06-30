@@ -43,6 +43,8 @@
 
 /* Local functions forward declarations for unsupported command checks */
 static void ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement);
+static void ErrorIfCitusLocalTablePartitionCommand(AlterTableCmd *alterTableCmd,
+												   Oid parentRelationId);
 static List * InterShardDDLTaskList(Oid leftRelationId, Oid rightRelationId,
 									const char *commandString);
 static bool AlterInvolvesPartitionColumn(AlterTableStmt *alterTableStatement,
@@ -984,12 +986,17 @@ ErrorIfUnsupportedConstraint(Relation relation, char distributionMethod,
  * ALTER TABLE REPLICA IDENTITY
  * ALTER TABLE SET ()
  * ALTER TABLE RESET ()
+ * ALTER TABLE ENABLE/DISALE TRIGGER (only for citus local tables)
  */
 static void
 ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement)
 {
-	/* error out if any of the subcommands are unsupported */
 	List *commandList = alterTableStatement->cmds;
+
+	LOCKMODE lockmode = AlterTableGetLockLevel(commandList);
+	Oid relationId = AlterTableLookupRelation(alterTableStatement, lockmode);
+
+	/* error out if any of the subcommands are unsupported */
 	AlterTableCmd *command = NULL;
 	foreach_ptr(command, commandList)
 	{
@@ -1071,12 +1078,10 @@ ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement)
 
 			case AT_AttachPartition:
 			{
-				Oid relationId = AlterTableLookupRelation(alterTableStatement,
-														  NoLock);
 				PartitionCmd *partitionCommand = (PartitionCmd *) command->def;
 				bool missingOK = false;
 				Oid partitionRelationId = RangeVarGetRelid(partitionCommand->name,
-														   NoLock, missingOK);
+														   lockmode, missingOK);
 
 				/* we only allow partitioning commands if they are only subcommand */
 				if (commandList->length > 1)
@@ -1087,6 +1092,8 @@ ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement)
 									errhint("You can issue each subcommand "
 											"separately.")));
 				}
+
+				ErrorIfCitusLocalTablePartitionCommand(command, relationId);
 
 				if (IsCitusTable(partitionRelationId) &&
 					!TablesColocated(relationId, partitionRelationId))
@@ -1112,14 +1119,13 @@ ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement)
 											"separately.")));
 				}
 
+				ErrorIfCitusLocalTablePartitionCommand(command, relationId);
+
 				break;
 			}
 
 			case AT_DropConstraint:
 			{
-				LOCKMODE lockmode = AlterTableGetLockLevel(alterTableStatement->cmds);
-				Oid relationId = AlterTableLookupRelation(alterTableStatement, lockmode);
-
 				if (!OidIsValid(relationId))
 				{
 					return;
@@ -1133,17 +1139,35 @@ ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement)
 				break;
 			}
 
-			case AT_SetNotNull:
+			case AT_EnableTrig:
+			case AT_EnableAlwaysTrig:
+			case AT_EnableReplicaTrig:
+			case AT_EnableTrigUser:
+			case AT_DisableTrig:
+			case AT_DisableTrigUser:
 			case AT_EnableTrigAll:
 			case AT_DisableTrigAll:
+			{
+				if (!IsCitusLocalTable(relationId))
+				{
+					const char *relationName = alterTableStatement->relation->relname;
+					ereport(ERROR, (errmsg("cannot execute ALTER TABLE ENABLE/DISABLE "
+										   "TRIGGER command for relation \"%s\" because "
+										   "it is either a distributed table or a "
+										   "reference table", relationName)));
+				}
+				break;
+			}
+
+			case AT_SetNotNull:
 			case AT_ReplicaIdentity:
 			case AT_ValidateConstraint:
 			{
 				/*
-				 * We will not perform any special check for ALTER TABLE DROP CONSTRAINT
-				 * , ALTER TABLE .. ALTER COLUMN .. SET NOT NULL and ALTER TABLE ENABLE/
-				 * DISABLE TRIGGER ALL, ALTER TABLE .. REPLICA IDENTITY .., ALTER TABLE
-				 * .. VALIDATE CONSTRAINT ..
+				 * We will not perform any special check for:
+				 * ALTER TABLE .. ALTER COLUMN .. SET NOT NULL
+				 * ALTER TABLE .. REPLICA IDENTITY ..
+				 * ALTER TABLE .. VALIDATE CONSTRAINT ..
 				 */
 				break;
 			}
@@ -1169,6 +1193,51 @@ ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement)
 			}
 		}
 	}
+}
+
+
+/*
+ * ErrorIfCitusLocalTablePartitionCommand errors out if given alter table subcommand is
+ * an ALTER TABLE ATTACH / DETACH PARTITION command run for a citus local table.
+ */
+static void
+ErrorIfCitusLocalTablePartitionCommand(AlterTableCmd *alterTableCmd, Oid parentRelationId)
+{
+	AlterTableType alterTableType = alterTableCmd->subtype;
+	if (alterTableType != AT_AttachPartition && alterTableType != AT_DetachPartition)
+	{
+		return;
+	}
+
+	bool isCitusLocalTablePartitionCommand = false;
+	if (IsCitusTable(parentRelationId) && IsCitusLocalTable(parentRelationId))
+	{
+		isCitusLocalTablePartitionCommand = true;
+	}
+	else
+	{
+		PartitionCmd *partitionCommand = (PartitionCmd *) alterTableCmd->def;
+		RangeVar *childRelationRangeVar = partitionCommand->name;
+		bool missingOK = false;
+		Oid childRelationId = RangeVarGetRelid(childRelationRangeVar, AccessExclusiveLock,
+											   missingOK);
+
+		/* check if child relation is citus local table */
+		if (IsCitusTable(childRelationId) && IsCitusLocalTable(childRelationId))
+		{
+			isCitusLocalTablePartitionCommand = true;
+		}
+	}
+
+	if (!isCitusLocalTablePartitionCommand)
+	{
+		return;
+	}
+
+	ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("cannot execute ATTACH/DETACH PARTITION command as "
+						   "citus local tables cannot be involved in partition "
+						   "relationships with other tables")));
 }
 
 
