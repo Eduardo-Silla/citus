@@ -1,16 +1,16 @@
 ### citus v9.4.0 (July 1, 2020) ###
 
-* Adds showing query text in EXPLAIN output when explain verbose is true
+* Improves COPY by honoring max_adaptive_executor_pool_size config
 
 * Adds support for insert into local table select from distributed table
+
+* Enables joins between local tables and CTEs
+
+* Adds showing query text in EXPLAIN output when explain verbose is true
 
 * Adds support for showing CTE statistics in EXPLAIN ANALYZE
 
 * Adds support for showing amount of data received in EXPLAIN ANALYZE
-
-* Enables joins between local tables and CTEs
-
-* Improves COPY by honoring max_adaptive_executor_pool_size config
 
 * Avoids returning incorrect results when changing roles in a transaction
 
