@@ -1,40 +1,40 @@
 ### citus v9.4.0 (July 1, 2020) ###
 
-* Introduces downgrade paths in migration scripts
-
-* Fixes a crash when aggregating empty tables
-
-* Fixes wrong cancellation message about distributed deadlock
-
-* Fixes crash when using rollback to savepoint after cancellation of DML
-
-* Reports correct INSERT/SELECT method in EXPLAIN
-
-* Fixes explain analyze on adaptive executor repartitions
-
-* Fixes segfault when evaluating func calls with default params on coordinator
-
-* Adds support for showing amount of data received in EXPLAIN ANALYZE
-
-* Enables joins between local tables and CTEs
+* Adds showing query text in EXPLAIN output when explain verbose is true
 
 * Adds support for insert into local table select from distributed table
 
 * Adds support for showing CTE statistics in EXPLAIN ANALYZE
 
-* Adds showing query text in EXPLAIN output when explain verbose is true
-
-* Fixes several EXPLAIN ANALYZE issues
-
-* Fixes possible error throwing in abort handle
-
-* Improves COPY by honoring max_adaptive_executor_pool_size config
+* Adds support for showing amount of data received in EXPLAIN ANALYZE
 
 * Avoids returning incorrect results when changing roles in a transaction
 
 * Disallows triggers on citus tables
 
+* Enables joins between local tables and CTEs
+
+* Fixes a crash when aggregating empty tables
+
+* Fixes crash when using rollback to savepoint after cancellation of DML
+
 * Fixes distribution of composite types failing to include typemods
+
+* Fixes explain analyze on adaptive executor repartitions
+
+* Fixes possible error throwing in abort handle
+
+* Fixes segfault when evaluating func calls with default params on coordinator
+
+* Fixes several EXPLAIN ANALYZE issues
+
+* Fixes wrong cancellation message about distributed deadlock
+
+* Improves COPY by honoring max_adaptive_executor_pool_size config
+
+* Introduces downgrade paths in migration scripts
+
+* Reports correct INSERT/SELECT method in EXPLAIN
 
 ### citus v9.3.2 (Jun 22, 2020) ###
 
