@@ -2,39 +2,39 @@
 
 * Introduces downgrade paths in migration scripts
 
-* Fix a crash when aggregating empty tables.
+* Fixes a crash when aggregating empty tables
 
-* Fix wrong cancellation message about distributed deadlock
+* Fixes wrong cancellation message about distributed deadlock
 
-* Fixes crash when using rollback to savepoint after cancelation of DML
+* Fixes crash when using rollback to savepoint after cancellation of DML
 
-* Report correct INSERT/SELECT method in EXPLAIN
+* Reports correct INSERT/SELECT method in EXPLAIN
 
-* Fix explain analyze on adaptive executor repartitions
+* Fixes explain analyze on adaptive executor repartitions
 
-* Fix segfault when evaluating function calls with default params on coordinator
+* Fixes segfault when evaluating func calls with default params on coordinator
 
-* Show amount of data received in EXPLAIN ANALYZ
+* Adds support for showing amount of data received in EXPLAIN ANALYZE
 
 * Enables joins between local tables and CTEs
 
-* Adds support for insert into local table select from distributed table.
+* Adds support for insert into local table select from distributed table
 
-* Show CTE statistics in EXPLAIN ANALYZE.
+* Adds support for showing CTE statistics in EXPLAIN ANALYZE
 
-* Shows query text in EXPLAIN output when explain verbose is true
+* Adds showing query text in EXPLAIN output when explain verbose is true
 
-* Fix several EXPLAIN ANALYZE issues.
+* Fixes several EXPLAIN ANALYZE issues
 
-* Fix possible error throwing in abort handle
+* Fixes possible error throwing in abort handle
 
 * Improves COPY by honoring max_adaptive_executor_pool_size config
 
-* Do not return incorrect results when changing roles in a transactio
+* Avoids returning incorrect results when changing roles in a transaction
 
-* Disallow triggers on citus tables
+* Disallows triggers on citus tables
 
-* Fix distribution of composite types failing to include typemods
+* Fixes distribution of composite types failing to include typemods
 
 ### citus v9.3.2 (Jun 22, 2020) ###
 
