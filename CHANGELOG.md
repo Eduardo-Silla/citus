@@ -12,8 +12,7 @@
 
 * Fix explain analyze on adaptive executor repartitions
 
-TODO: PLEASE SHORTEN THE NEXT LINE MANUALLY, IT SHOULD BE NO LONGER THAN 78 CHARS
-* Fix segfault when evaluating function calls with default parameters on coordinator
+* Fix segfault when evaluating function calls with default params on coordinator
 
 * Show amount of data received in EXPLAIN ANALYZ
 
