@@ -12,9 +12,9 @@
 
 * Adds support for showing amount of data received in EXPLAIN ANALYZE
 
-* Avoids returning incorrect results when changing roles in a transaction
+* Introduces downgrade paths in migration scripts
 
-* Disallows triggers on citus tables
+* Avoids returning incorrect results when changing roles in a transaction
 
 * Fixes a crash when aggregating empty tables
 
@@ -32,9 +32,9 @@
 
 * Fixes wrong cancellation message about distributed deadlock
 
-* Introduces downgrade paths in migration scripts
-
 * Reports correct INSERT/SELECT method in EXPLAIN
+
+* Disallows triggers on citus tables
 
 ### citus v9.3.2 (Jun 22, 2020) ###
 
