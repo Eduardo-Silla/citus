@@ -20,8 +20,6 @@
 
 * Adds support for insert into local table select from distributed table.
 
-* Adds support to partially push down tdigest aggregates
-
 * Show CTE statistics in EXPLAIN ANALYZE.
 
 * Shows query text in EXPLAIN output when explain verbose is true
@@ -33,8 +31,6 @@
 * Improves COPY by honoring max_adaptive_executor_pool_size config
 
 * Do not return incorrect results when changing roles in a transactio
-
-* Avoid segfaulting when inserting implicitly coerced constants
 
 * Disallow triggers on citus tables
 
