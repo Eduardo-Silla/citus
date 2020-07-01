@@ -8,11 +8,13 @@
 
 * Adds support for showing amount of data received in EXPLAIN ANALYZE
 
+* Enables joins between local tables and CTEs
+
+* Improves COPY by honoring max_adaptive_executor_pool_size config
+
 * Avoids returning incorrect results when changing roles in a transaction
 
 * Disallows triggers on citus tables
-
-* Enables joins between local tables and CTEs
 
 * Fixes a crash when aggregating empty tables
 
@@ -29,8 +31,6 @@
 * Fixes several EXPLAIN ANALYZE issues
 
 * Fixes wrong cancellation message about distributed deadlock
-
-* Improves COPY by honoring max_adaptive_executor_pool_size config
 
 * Introduces downgrade paths in migration scripts
 
