@@ -1801,7 +1801,8 @@ FilterPlannerRestrictionForQuery(PlannerRestrictionContext *plannerRestrictionCo
  */
 List *
 GetRestrictInfoListForRelation(RangeTblEntry *rangeTblEntry,
-							   PlannerRestrictionContext *plannerRestrictionContext)
+							   PlannerRestrictionContext *plannerRestrictionContext,
+							   int rteIndex)
 {
 	int rteIdentity = GetRTEIdentity(rangeTblEntry);
 	RelationRestrictionContext *relationRestrictionContext =
@@ -1822,6 +1823,7 @@ GetRestrictInfoListForRelation(RangeTblEntry *rangeTblEntry,
 
 	RelOptInfo *relOptInfo = relationRestriction->relOptInfo;
 	List *baseRestrictInfo = relOptInfo->baserestrictinfo;
+
 
 	List *restrictExprList = NIL;
 	ListCell *restrictCell = NULL;
@@ -1862,8 +1864,8 @@ GetRestrictInfoListForRelation(RangeTblEntry *rangeTblEntry,
 		{
 			Var *column = (Var *) lfirst(varClauseCell);
 
-			column->varno = 1;
-			column->varnoold = 1;
+			column->varno = rteIndex;
+			column->varnoold = rteIndex;
 		}
 
 		restrictExprList = lappend(restrictExprList, copyOfRestrictClause);
