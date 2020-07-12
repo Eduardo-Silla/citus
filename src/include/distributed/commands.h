@@ -303,7 +303,6 @@ extern List * GetExplicitTriggerCommandList(Oid relationId);
 extern List * GetExplicitTriggerNameList(Oid relationId);
 extern char * GetTriggerNameById(Oid triggerId);
 extern HeapTuple GetTriggerTupleById(Oid triggerId);
-extern List * FilterTriggerIdListByEvent(List *triggerIdList, int16 events);
 extern List * GetExplicitTriggerIdList(Oid relationId);
 extern Oid get_relation_trigger_oid_compat(HeapTuple heapTuple);
 extern void ErrorIfUnsupportedCreateTriggerCommand(CreateTrigStmt *createTriggerStmt);
@@ -317,7 +316,7 @@ extern List * PostprocessAlterTriggerDependsStmt(Node *node, const char *command
 extern void AlterTriggerDependsEventExtendNames(
 	AlterObjectDependsStmt *alterTriggerDependsStmt,
 	char *schemaName, uint64 shardId);
-extern List * PostprocessDropTriggerStmt(Node *node, const char *commandString);
+extern List * PreprocessDropTriggerStmt(Node *node, const char *commandString);
 extern void DropTriggerEventExtendNames(DropStmt *dropTriggerStmt, char *schemaName,
 										uint64 shardId);
 

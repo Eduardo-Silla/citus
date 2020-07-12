@@ -827,15 +827,6 @@ PostStandardProcessUtility(Node *parsetree)
 	 * before ExecuteDistributedDDLJob().
 	 */
 	InvalidateForeignKeyGraphForDDL();
-
-	/*
-	 * We disable truncate triggers on citus local tables to be truncated
-	 * temporarily. Revert their enable/disable states back.
-	 */
-	if (IsA(parsetree, TruncateStmt))
-	{
-		RevertTruncateTriggersEnableDisableStates();
-	}
 }
 
 

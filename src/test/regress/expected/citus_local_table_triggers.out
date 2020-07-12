@@ -71,15 +71,12 @@ $insert_100$ LANGUAGE plpgsql;
 CREATE TRIGGER insert_100_trigger
 AFTER TRUNCATE ON citus_local_table
 FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();
-NOTICE:  executing the command locally: SELECT worker_apply_shard_ddl_command (1507000, 'citus_local_table_triggers', 'CREATE TRIGGER insert_100_trigger
-AFTER TRUNCATE ON citus_local_table
-FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();')
 -- As TRUNCATE triggers are executed by utility hook, it's critical to see that they
 -- are executed only for once.
 -- select should print a row with "100" as truncate from citus_local_table will insert 100
 TRUNCATE citus_local_table;
-NOTICE:  executing the command locally: TRUNCATE TABLE citus_local_table_triggers.citus_local_table_xxxxx CASCADE
 NOTICE:  executing the command locally: INSERT INTO citus_local_table_triggers.reference_table_1507005 (value) VALUES (100)
+NOTICE:  executing the command locally: TRUNCATE TABLE citus_local_table_triggers.citus_local_table_xxxxx CASCADE
 SELECT * FROM reference_table;
 NOTICE:  executing the command locally: SELECT value FROM citus_local_table_triggers.reference_table_1507005 reference_table
  value

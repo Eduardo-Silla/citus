@@ -17,6 +17,7 @@
 #include "access/genam.h"
 #include "access/htup_details.h"
 #include "catalog/pg_constraint.h"
+#include "catalog/pg_trigger.h"
 #include "distributed/coordinator_protocol.h"
 #include "distributed/create_citus_local_table.h"
 #include "distributed/citus_ruleutils.h"
@@ -45,8 +46,9 @@ static List * GetConstraintNameList(Oid relationId);
 static char * GetRenameShardConstraintCommand(Oid relationId, char *constraintName,
 											  uint64 shardId);
 static void RenameShardRelationIndexes(Oid shardRelationId, uint64 shardId);
+static char * GetDropTriggerCommand(Oid relationId, char *triggerName);
 static char * GetRenameShardIndexCommand(char *indexName, uint64 shardId);
-static void RenameShardRelationTriggers(Oid shardRelationId, uint64 shardId);
+static void RenameOrDropShardRelationTriggers(Oid shardRelationId, uint64 shardId);
 static char * GetRenameShardTriggerCommand(Oid shardRelationId, char *triggerName,
 										   uint64 shardId);
 static List * GetExplicitIndexNameList(Oid relationId);
@@ -329,7 +331,7 @@ ConvertLocalTableToShard(Oid relationId)
 	RenameRelationToShardRelation(relationId, shardId);
 	RenameShardRelationConstraints(relationId, shardId);
 	RenameShardRelationIndexes(relationId, shardId);
-	RenameShardRelationTriggers(relationId, shardId);
+	RenameOrDropShardRelationTriggers(relationId, shardId);
 
 	return shardId;
 }
@@ -494,23 +496,60 @@ GetRenameShardIndexCommand(char *indexName, uint64 shardId)
 
 
 /*
- * RenameShardRelationTriggers appends given shardId to the end of the names
- * of shard relation triggers that are explicitly created. This function
- * utilizes GetExplicitTriggerNameList to pick the triggers to be renamed, see
- * more details in function's comment.
+ * RenameOrDropShardRelationTriggers appends given shardId to the end of the
+ * names of shard relation INSERT/DELETE/UPDATE triggers and drops TRUNCATE
+ * triggers that are explicitly created. This function utilizes
+ * GetExplicitTriggerNameList to pick the triggers to be renamed, see more
+ * details in function's comment.
  */
 static void
-RenameShardRelationTriggers(Oid shardRelationId, uint64 shardId)
+RenameOrDropShardRelationTriggers(Oid shardRelationId, uint64 shardId)
 {
-	List *triggerNameList = GetExplicitTriggerNameList(shardRelationId);
+	List *triggerIdList = GetExplicitTriggerIdList(shardRelationId);
 
-	char *triggerName = NULL;
-	foreach_ptr(triggerName, triggerNameList)
+	Oid triggerId = InvalidOid;
+	foreach_oid(triggerId, triggerIdList)
 	{
-		const char *commandString =
-			GetRenameShardTriggerCommand(shardRelationId, triggerName, shardId);
+		HeapTuple heapTuple = GetTriggerTupleById(triggerId);
+
+		Assert(HeapTupleIsValid(heapTuple));
+		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(heapTuple);
+
+		char *triggerName = NameStr(triggerForm->tgname);
+		char *commandString = NULL;
+		if (TRIGGER_FOR_TRUNCATE(triggerForm->tgtype))
+		{
+			/* drop truncate trigger on shard relation */
+			commandString = GetDropTriggerCommand(shardRelationId, triggerName);
+		}
+		else
+		{
+			/* suffix INSERT|DELETE|UPDATE trigger with shardId */
+			commandString = GetRenameShardTriggerCommand(shardRelationId, triggerName,
+														 shardId);
+		}
+
 		ExecuteAndLogDDLCommand(commandString);
 	}
+}
+
+
+/*
+ * GetDropTriggerCommand returns DDL command to drop the trigger with triggerName
+ * on relationId.
+ */
+static char *
+GetDropTriggerCommand(Oid relationId, char *triggerName)
+{
+	char *qualifiedRelationName = generate_qualified_relation_name(relationId);
+	const char *quotedTriggerName = quote_identifier(triggerName);
+
+	/* TODO:when to CASCADE ?? */
+	StringInfo dropCommand = makeStringInfo();
+	appendStringInfo(dropCommand, "DROP TRIGGER %s ON %s;",
+					 quotedTriggerName, qualifiedRelationName);
+
+	return dropCommand->data;
 }
 
 

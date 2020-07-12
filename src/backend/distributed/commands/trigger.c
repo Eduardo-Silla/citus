@@ -41,8 +41,14 @@
 static void ErrorIfUnsupportedTriggerCommand(Node *parseTree, LOCKMODE lockMode);
 static RangeVar * GetDropTriggerStmtRelation(DropStmt *dropTriggerStmt);
 static bool IsCreateCitusTruncateTriggerStmt(CreateTrigStmt *createTriggerStmt);
-static List * CitusLocalTableTriggerCommandDDLJob(Oid relationId,
+static Value * GetAlterTriggerDependsTriggerNameValue(AlterObjectDependsStmt *
+													  alterTriggerDependsStmt);
+static void ExtractDropStmtTriggerAndRelationName(DropStmt *dropTriggerStmt,
+												  char **triggerName,
+												  char **relationName);
+static List * CitusLocalTableTriggerCommandDDLJob(Oid relationId, char *triggerName,
 												  const char *commandString);
+static int16 GetTriggerTypeById(Oid triggerId);
 
 
 /*
@@ -157,37 +163,6 @@ GetTriggerTupleById(Oid triggerId)
 	heap_close(pgTrigger, NoLock);
 
 	return targetHeapTuple;
-}
-
-
-/*
- * FilterTriggerIdListByEvent filters the given triggerId list by their firing
- * events and returns a new for filtered trigger ids.
- */
-List *
-FilterTriggerIdListByEvent(List *triggerIdList, int16 events)
-{
-	Assert(events & TRIGGER_TYPE_EVENT_MASK);
-
-	List *filteredTriggerIdList = NIL;
-
-	Oid triggerId = InvalidOid;
-	foreach_oid(triggerId, triggerIdList)
-	{
-		HeapTuple heapTuple = GetTriggerTupleById(triggerId);
-
-		Assert(HeapTupleIsValid(heapTuple));
-		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(heapTuple);
-
-		if (triggerForm->tgtype & events)
-		{
-			filteredTriggerIdList = lappend_oid(filteredTriggerIdList, triggerId);
-		}
-
-		heap_freetuple(heapTuple);
-	}
-
-	return filteredTriggerIdList;
 }
 
 
@@ -399,7 +374,9 @@ PostprocessCreateTriggerStmt(Node *node, const char *commandString)
 
 	if (IsCitusLocalTable(relationId))
 	{
-		return CitusLocalTableTriggerCommandDDLJob(relationId, commandString);
+		char *triggerName = createTriggerStmt->trigname;
+		return CitusLocalTableTriggerCommandDDLJob(relationId, triggerName,
+												   commandString);
 	}
 
 	return NIL;
@@ -473,7 +450,10 @@ PostprocessAlterTriggerRenameStmt(Node *node, const char *commandString)
 
 	if (IsCitusLocalTable(relationId))
 	{
-		return CitusLocalTableTriggerCommandDDLJob(relationId, commandString);
+		/* use newname as standard process utility already renamed it */
+		char *triggerName = renameTriggerStmt->newname;
+		return CitusLocalTableTriggerCommandDDLJob(relationId, triggerName,
+												   commandString);
 	}
 
 	return NIL;
@@ -534,7 +514,10 @@ PostprocessAlterTriggerDependsStmt(Node *node, const char *commandString)
 
 	if (IsCitusLocalTable(relationId))
 	{
-		return CitusLocalTableTriggerCommandDDLJob(relationId, commandString);
+		Value *triggerNameValue = GetAlterTriggerDependsTriggerNameValue(
+			alterTriggerDependsStmt);
+		return CitusLocalTableTriggerCommandDDLJob(relationId, strVal(triggerNameValue),
+												   commandString);
 	}
 
 	return NIL;
@@ -556,8 +539,8 @@ AlterTriggerDependsEventExtendNames(AlterObjectDependsStmt *alterTriggerDependsS
 	char **relationName = &(relation->relname);
 	AppendShardIdToName(relationName, shardId);
 
-	List *triggerObjectNameList = (List *) alterTriggerDependsStmt->object;
-	Value *triggerNameValue = llast(triggerObjectNameList);
+	Value *triggerNameValue = GetAlterTriggerDependsTriggerNameValue(
+		alterTriggerDependsStmt);
 	AppendShardIdToName(&strVal(triggerNameValue), shardId);
 
 	char **relationSchemaName = &(relation->schemaname);
@@ -566,21 +549,40 @@ AlterTriggerDependsEventExtendNames(AlterObjectDependsStmt *alterTriggerDependsS
 
 
 /*
- * PostprocessDropTriggerStmt is called after a DROP TRIGGER command has been
+ * GetAlterTriggerDependsTriggerName returns Value object for the trigger
+ * name that given AlterObjectDependsStmt is executed for.
+ */
+static Value *
+GetAlterTriggerDependsTriggerNameValue(AlterObjectDependsStmt *alterTriggerDependsStmt)
+{
+	List *triggerObjectNameList = (List *) alterTriggerDependsStmt->object;
+	Value *triggerNameValue = llast(triggerObjectNameList);
+	return triggerNameValue;
+}
+
+
+/*
+ * PreprocessDropTriggerStmt is called before a DROP TRIGGER command has been
  * executed by standard process utility. This function errors out for
  * unsupported commands or creates ddl job for supported DROP TRIGGER commands.
  */
 List *
-PostprocessDropTriggerStmt(Node *node, const char *commandString)
+PreprocessDropTriggerStmt(Node *node, const char *commandString)
 {
 	DropStmt *dropTriggerStmt = castNode(DropStmt, node);
 	Assert(dropTriggerStmt->removeType == OBJECT_TRIGGER);
 
 	RangeVar *relation = GetDropTriggerStmtRelation(dropTriggerStmt);
 
-	bool missingOk = false;
+	bool missingOk = true;
 	LOCKMODE lockMode = AccessExclusiveLock;
 	Oid relationId = RangeVarGetRelid(relation, lockMode, missingOk);
+
+	if (!OidIsValid(relationId))
+	{
+		/* let standard process utility to error out */
+		return NIL;
+	}
 
 	if (!IsCitusTable(relationId))
 	{
@@ -591,7 +593,10 @@ PostprocessDropTriggerStmt(Node *node, const char *commandString)
 
 	if (IsCitusLocalTable(relationId))
 	{
-		return CitusLocalTableTriggerCommandDDLJob(relationId, commandString);
+		char *triggerName = NULL;
+		ExtractDropStmtTriggerAndRelationName(dropTriggerStmt, &triggerName, NULL);
+		return CitusLocalTableTriggerCommandDDLJob(relationId, triggerName,
+												   commandString);
 	}
 
 	return NIL;
@@ -608,20 +613,15 @@ DropTriggerEventExtendNames(DropStmt *dropTriggerStmt, char *schemaName, uint64 
 {
 	Assert(dropTriggerStmt->removeType == OBJECT_TRIGGER);
 
-	List *targetObjectList = dropTriggerStmt->objects;
+	char *triggerName = NULL;
+	char *relationName = NULL;
+	ExtractDropStmtTriggerAndRelationName(dropTriggerStmt, &triggerName, &relationName);
 
-	/* drop trigger commands can only drop one at a time */
-	Assert(list_length(targetObjectList) == 1);
-	List *triggerObjectNameList = linitial(targetObjectList);
+	AppendShardIdToName(&triggerName, shardId);
+	Value *triggerNameValue = makeString(triggerName);
 
-	List *relationNameList = NIL;
-	Value *triggerNameValue = NULL;
-	SplitLastPointerElement(triggerObjectNameList, &relationNameList,
-							(void **) &triggerNameValue);
-	AppendShardIdToName(&strVal(triggerNameValue), shardId);
-
-	Value *relationNameValue = llast(relationNameList);
-	AppendShardIdToName(&strVal(relationNameValue), shardId);
+	AppendShardIdToName(&relationName, shardId);
+	Value *relationNameValue = makeString(relationName);
 
 	Value *schemaNameValue = makeString(pstrdup(schemaName));
 
@@ -632,17 +632,90 @@ DropTriggerEventExtendNames(DropStmt *dropTriggerStmt, char *schemaName, uint64 
 
 
 /*
+ * ExtractDropStmtTriggerAndRelationName extracts triggerName and relationName
+ * from given dropTriggerStmt if arguments are passed as non-null pointers.
+ */
+static void
+ExtractDropStmtTriggerAndRelationName(DropStmt *dropTriggerStmt, char **triggerName,
+									  char **relationName)
+{
+	List *targetObjectList = dropTriggerStmt->objects;
+
+	/* drop trigger commands can only drop one at a time */
+	Assert(list_length(targetObjectList) == 1);
+	List *triggerObjectNameList = linitial(targetObjectList);
+
+	List *relationNameList = NIL;
+	Value *triggerNameValue = NULL;
+	SplitLastPointerElement(triggerObjectNameList, &relationNameList,
+							(void **) &triggerNameValue);
+
+	if (triggerName)
+	{
+		*triggerName = strVal(triggerNameValue);
+	}
+
+	if (relationName)
+	{
+		Value *relationNameValue = llast(relationNameList);
+		*relationName = strVal(relationNameValue);
+	}
+}
+
+
+/*
  * CitusLocalTableTriggerCommandDDLJob creates a ddl job to execute given
  * commandString on shell relation(s) in mx worker(s) and to execute necessary
- * ddl task to on citus local table shard.
+ * ddl task on citus local table shard (if needed).
  */
 static List *
-CitusLocalTableTriggerCommandDDLJob(Oid relationId, const char *commandString)
+CitusLocalTableTriggerCommandDDLJob(Oid relationId, char *triggerName,
+									const char *commandString)
 {
 	DDLJob *ddlJob = palloc0(sizeof(DDLJob));
 	ddlJob->targetRelationId = relationId;
 	ddlJob->commandString = commandString;
-	ddlJob->taskList = DDLTaskList(relationId, commandString);
+
+	bool missingOk = true;
+	Oid triggerId = get_trigger_oid(relationId, triggerName, missingOk);
+	if (!OidIsValid(triggerId))
+	{
+		/*
+		 * We create ddl job for drop trigger commands in preprocess, so trigger
+		 * may not exist.
+		 */
+		return NIL;
+	}
+
+	/* we don't have truncate triggers on shard relations */
+	int16 triggerType = GetTriggerTypeById(triggerId);
+	if (!TRIGGER_FOR_TRUNCATE(triggerType))
+	{
+		ddlJob->taskList = DDLTaskList(relationId, commandString);
+	}
 
 	return list_make1(ddlJob);
+}
+
+
+/*
+ * GetTriggerTypeById returns trigger type (tgtype) of the trigger identified
+ * by triggerId. Returns the value set by TRIGGER_CLEAR_TYPE if no such trigger
+ * exists.
+ */
+static int16
+GetTriggerTypeById(Oid triggerId)
+{
+	int16 triggerType;
+	TRIGGER_CLEAR_TYPE(triggerType);
+
+	HeapTuple heapTuple = GetTriggerTupleById(triggerId);
+	if (HeapTupleIsValid(heapTuple))
+	{
+		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(heapTuple);
+		triggerType = triggerForm->tgtype;
+		heap_freetuple(heapTuple);
+	}
+
+	return triggerType;
 }

@@ -452,8 +452,8 @@ static DistributeObjectOps Type_Drop = {
 static DistributeObjectOps Trigger_Drop = {
 	.deparse = NULL,
 	.qualify = NULL,
-	.preprocess = NULL,
-	.postprocess = PostprocessDropTriggerStmt,
+	.preprocess = PreprocessDropTriggerStmt,
+	.postprocess = NULL,
 	.address = NULL,
 };
 static DistributeObjectOps Type_Rename = {
