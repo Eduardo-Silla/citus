@@ -54,19 +54,17 @@ utils/citus_version.o: $(CITUS_VERSION_INVALIDATE)
 SHLIB_LINK += $(filter -lssl -lcrypto -lssleay32 -leay32, $(LIBS))
 
 override LDFLAGS += $(libbacktrace_a)
-override CPPFLAGS += -I$(libpq_srcdir) -I$(safestringlib_srcdir)/include -I$(libbacktrace_srcdir)
+override CPPFLAGS += -I$(libpq_srcdir) -I$(safestringlib_srcdir)/include -I$(libbacktrace_builddir)/include
 
 SQL_DEPDIR=.deps/sql
 SQL_BUILDDIR=build/sql
 
-$(libbacktrace_a): $(libbacktrace_sources)
+$(libbacktrace_a):
 	rm -rf $(libbacktrace_builddir)
 	mkdir -p $(libbacktrace_builddir)
 	cd $(libbacktrace_builddir) && $(libbacktrace_srcdir)/configure --prefix $(libbacktrace_builddir) CFLAGS=-fPIC && make install -j6
 
-citus.so: $(libbacktrace_a)
 
-$(OBJS): $(libbacktrace_a)
 
 $(generated_sql_files): $(citus_abs_srcdir)/build/%: %
 	@mkdir -p $(citus_abs_srcdir)/$(SQL_DEPDIR) $(citus_abs_srcdir)/$(SQL_BUILDDIR)
@@ -82,7 +80,7 @@ endif
 cleanup-before-install:
 	rm -f $(DESTDIR)$(datadir)/$(datamoduledir)/citus*
 
-install: cleanup-before-install
+install: cleanup-before-install $(libbacktrace_a)
 
 clean-full:
 	make clean
