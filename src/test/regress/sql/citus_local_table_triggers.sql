@@ -20,70 +20,98 @@ SELECT create_citus_local_table('citus_local_table');
 -- DELETE trigger --
 --------------------
 
-CREATE TABLE distributed_table(value int);
-SELECT create_distributed_table('distributed_table', 'value');
-CREATE FUNCTION insert_42() RETURNS trigger AS $insert_42$
-BEGIN
-    INSERT INTO distributed_table VALUES (42);
-    RETURN NEW;
-END;
-$insert_42$ LANGUAGE plpgsql;
+BEGIN;
+    CREATE TABLE distributed_table(value int);
+    SELECT create_distributed_table('distributed_table', 'value');
+    CREATE FUNCTION insert_42() RETURNS trigger AS $insert_42$
+    BEGIN
+        INSERT INTO distributed_table VALUES (42);
+        RETURN NEW;
+    END;
+    $insert_42$ LANGUAGE plpgsql;
 
-CREATE TRIGGER insert_42_trigger
-AFTER DELETE ON citus_local_table
-FOR EACH ROW EXECUTE PROCEDURE insert_42();
+    CREATE TRIGGER insert_42_trigger
+    AFTER DELETE ON citus_local_table
+    FOR EACH ROW EXECUTE PROCEDURE insert_42();
 
--- select should print two rows with "42" as delete from citus_local_table will
--- insert 42 per deleted row
-DELETE FROM citus_local_table;
-SELECT * FROM distributed_table;
+    -- select should print two rows with "42" as delete from citus_local_table will
+    -- insert 42 per deleted row
+    DELETE FROM citus_local_table;
+    SELECT * FROM distributed_table;
+ROLLBACK;
 
 ----------------------
 -- TRUNCATE trigger --
 ----------------------
 
-CREATE TABLE reference_table(value int);
-SELECT create_reference_table('reference_table');
-CREATE FUNCTION insert_100() RETURNS trigger AS $insert_100$
-BEGIN
-    INSERT INTO reference_table VALUES (100);
-    RETURN NEW;
-END;
-$insert_100$ LANGUAGE plpgsql;
+BEGIN;
+    CREATE TABLE reference_table(value int);
+    SELECT create_reference_table('reference_table');
+    CREATE FUNCTION insert_100() RETURNS trigger AS $insert_100$
+    BEGIN
+        INSERT INTO reference_table VALUES (100);
+        RETURN NEW;
+    END;
+    $insert_100$ LANGUAGE plpgsql;
 
-CREATE TRIGGER insert_100_trigger
-AFTER TRUNCATE ON citus_local_table
-FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();
+    CREATE TRIGGER insert_100_trigger
+    AFTER TRUNCATE ON citus_local_table
+    FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();
 
--- As TRUNCATE triggers are executed by utility hook, it's critical to see that they
--- are executed only for once.
--- select should print a row with "100" as truncate from citus_local_table will insert 100
-TRUNCATE citus_local_table;
-SELECT * FROM reference_table;
+    -- As TRUNCATE triggers are executed by utility hook, it's critical to see that they
+    -- are executed only for once.
+    -- select should print a row with "100" as truncate from citus_local_table will insert 100
+    TRUNCATE citus_local_table;
+    SELECT * FROM reference_table;
+ROLLBACK;
 
 --------------------
 -- INSERT trigger --
 --------------------
 
-CREATE TABLE local_table(value int);
-CREATE FUNCTION increment_value() RETURNS trigger AS $increment_value$
-BEGIN
-    UPDATE local_table SET value=value+1;
-    RETURN NEW;
-END;
-$increment_value$ LANGUAGE plpgsql;
+BEGIN;
+    CREATE TABLE local_table(value int);
+    CREATE FUNCTION increment_value() RETURNS trigger AS $increment_value$
+    BEGIN
+        UPDATE local_table SET value=value+1;
+        RETURN NEW;
+    END;
+    $increment_value$ LANGUAGE plpgsql;
 
-CREATE TRIGGER increment_value_trigger
-AFTER INSERT ON citus_local_table
-FOR EACH ROW EXECUTE PROCEDURE increment_value();
+    CREATE TRIGGER increment_value_trigger
+    AFTER INSERT ON citus_local_table
+    FOR EACH ROW EXECUTE PROCEDURE increment_value();
 
--- insert initial data to the table that increment_value_trigger will execute for
-INSERT INTO local_table VALUES (0);
+    -- insert initial data to the table that increment_value_trigger will execute for
+    INSERT INTO local_table VALUES (0);
 
--- select should print a row with "2" as insert into citus_local_table will
--- increment all rows per inserted row
-INSERT INTO citus_local_table VALUES(0), (1);
-SELECT * FROM local_table;
+    -- select should print a row with "2" as insert into citus_local_table will
+    -- increment all rows per inserted row
+    INSERT INTO citus_local_table VALUES(0), (1);
+    SELECT * FROM local_table;
+ROLLBACK;
+
+--------------------
+-- UPDATE trigger --
+--------------------
+
+BEGIN;
+    CREATE FUNCTION error_for_5() RETURNS trigger AS $error_for_5$
+    BEGIN
+        IF OLD.value = 5 THEN
+            RAISE EXCEPTION 'cannot update update for value=5';
+        END IF;
+    END;
+    $error_for_5$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER error_for_5_trigger
+    BEFORE UPDATE OF value ON citus_local_table
+    FOR EACH ROW EXECUTE PROCEDURE error_for_5();
+
+    -- below update will error out as trigger raises exception
+    INSERT INTO citus_local_table VALUES (5);
+    UPDATE citus_local_table SET value=value*2 WHERE value=5;
+ROLLBACK;
 
 ------------------------------------------------------
 -- Test other trigger commands + weird object names --
@@ -95,7 +123,7 @@ SELECT create_citus_local_table('"interesting!schema"."citus_local!_table"');
 
 -- below view is an helper to print triggers on both shell relation and
 -- shard relation for "citus_local_table"
-CREATE OR REPLACE VIEW citus_local_table_triggers AS
+CREATE VIEW citus_local_table_triggers AS
     SELECT tgname, tgrelid::regclass, tgenabled
     FROM pg_trigger
     WHERE tgrelid::regclass::text like '"interesting!schema"."citus_local!_table%"'
@@ -161,6 +189,69 @@ SELECT * FROM citus_local_table_triggers;
 ALTER TABLE "interesting!schema"."citus_local!_table" ENABLE TRIGGER ALL;
 -- show that all triggers including internal triggers are enabled again
 SELECT * FROM citus_local_table_triggers;
+
+DROP TRIGGER another_trigger ON "interesting!schema"."citus_local!_table";
+-- show that drop trigger works as expected
+SELECT * FROM citus_local_table_triggers;
+
+-- as we create ddl jobs for DROP TRIGGER before standard process utility,
+-- it's important to see that we properly handle non-existing triggers
+DROP TRIGGER no_such_trigger ON "interesting!schema"."citus_local!_table";
+
+---------------------------------------
+-- a complex test case with triggers --
+---------------------------------------
+
+-- create test tables and some foreign key relationships between them to see
+-- that triggers are properly handled when ddl cascades to referencing table
+CREATE TABLE another_citus_local_table (value int unique);
+SELECT create_citus_local_table('another_citus_local_table');
+
+ALTER TABLE another_citus_local_table ADD CONSTRAINT fkey_self FOREIGN KEY(value) REFERENCES another_citus_local_table(value);
+ALTER TABLE citus_local_table ADD CONSTRAINT fkey_c_to_c FOREIGN KEY(value) REFERENCES another_citus_local_table(value) ON UPDATE CASCADE;
+
+CREATE TABLE reference_table(value int);
+SELECT create_reference_table('reference_table');
+
+CREATE FUNCTION insert_100() RETURNS trigger AS $insert_100$
+BEGIN
+    INSERT INTO reference_table VALUES (100);
+    RETURN NEW;
+END;
+$insert_100$ LANGUAGE plpgsql;
+
+BEGIN;
+    CREATE TRIGGER insert_100_trigger
+    AFTER TRUNCATE ON another_citus_local_table
+    FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();
+
+    CREATE TRIGGER insert_100_trigger
+    AFTER TRUNCATE ON citus_local_table
+    FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();
+
+    TRUNCATE another_citus_local_table CASCADE;
+    -- we should see two rows with "100"
+    SELECT * FROM reference_table;
+ROLLBACK;
+
+
+BEGIN;
+    -- update should actually update something to test ON UPDATE CASCADE logic
+    INSERT INTO another_citus_local_table VALUES (600);
+    INSERT INTO citus_local_table VALUES (600);
+
+    CREATE TRIGGER insert_100_trigger
+    AFTER UPDATE ON another_citus_local_table
+    FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();
+
+    CREATE TRIGGER insert_100_trigger
+    AFTER UPDATE ON citus_local_table
+    FOR EACH STATEMENT EXECUTE PROCEDURE insert_100();
+
+    UPDATE another_citus_local_table SET value=value-1;;
+    -- we should see two rows with "100"
+    SELECT * FROM reference_table;
+ROLLBACK;
 
 -- cleanup at exit
 DROP SCHEMA citus_local_table_triggers, "interesting!schema" CASCADE;

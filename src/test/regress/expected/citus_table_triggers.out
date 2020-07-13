@@ -6,7 +6,7 @@ SET citus.next_shard_id TO 1505000;
 CREATE SCHEMA table_triggers_schema;
 SET search_path TO table_triggers_schema;
 ---------------------------------------------------------------------
--- show that we do not allow trigger creation on citus tables
+-- show that we do not allow trigger creation on distributed & reference tables
 ---------------------------------------------------------------------
 -- create a simple function to be invoked by triggers
 CREATE FUNCTION update_value() RETURNS trigger AS $update_value$
@@ -38,6 +38,59 @@ CREATE TRIGGER update_value_ref
 AFTER INSERT ON reference_table
 FOR EACH ROW EXECUTE PROCEDURE update_value();
 ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "reference_table" because it is either a distributed table or a reference table
+---------------------------------------------------------------------
+-- show that we error out for trigger commands on distributed & reference tables
+---------------------------------------------------------------------
+SET citus.enable_ddl_propagation to OFF;
+-- create triggers when ddl propagation is off
+CREATE TRIGGER update_value_dist
+AFTER INSERT ON distributed_table
+FOR EACH ROW EXECUTE PROCEDURE update_value();
+CREATE TRIGGER update_value_ref
+AFTER INSERT ON reference_table
+FOR EACH ROW EXECUTE PROCEDURE update_value();
+-- enable ddl propagation back
+SET citus.enable_ddl_propagation to ON;
+-- create an extension for "depends on" commands
+CREATE EXTENSION seg;
+-- below all should error out
+ALTER TRIGGER update_value_dist ON distributed_table RENAME TO update_value_dist1;
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "distributed_table" because it is either a distributed table or a reference table
+ALTER TRIGGER update_value_dist ON distributed_table DEPENDS ON EXTENSION seg;
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "distributed_table" because it is either a distributed table or a reference table
+DROP TRIGGER update_value_dist ON distributed_table;
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "distributed_table" because it is either a distributed table or a reference table
+ALTER TABLE distributed_table DISABLE TRIGGER ALL;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "distributed_table" because it is either a distributed table or a reference table
+ALTER TABLE distributed_table DISABLE TRIGGER USER;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "distributed_table" because it is either a distributed table or a reference table
+ALTER TABLE distributed_table DISABLE TRIGGER update_value_dist;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "distributed_table" because it is either a distributed table or a reference table
+ALTER TABLE distributed_table ENABLE TRIGGER ALL;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "distributed_table" because it is either a distributed table or a reference table
+ALTER TABLE distributed_table ENABLE TRIGGER USER;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "distributed_table" because it is either a distributed table or a reference table
+ALTER TABLE distributed_table ENABLE TRIGGER update_value_dist;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "distributed_table" because it is either a distributed table or a reference table
+-- below all should error out
+ALTER TRIGGER update_value_ref ON reference_table RENAME TO update_value_ref1;
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "reference_table" because it is either a distributed table or a reference table
+ALTER TRIGGER update_value_ref ON reference_table DEPENDS ON EXTENSION seg;
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "reference_table" because it is either a distributed table or a reference table
+DROP TRIGGER update_value_ref ON reference_table;
+ERROR:  cannot execute CREATE/ALTER/DROP trigger command for relation "reference_table" because it is either a distributed table or a reference table
+ALTER TABLE reference_table DISABLE TRIGGER ALL;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "reference_table" because it is either a distributed table or a reference table
+ALTER TABLE reference_table DISABLE TRIGGER USER;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "reference_table" because it is either a distributed table or a reference table
+ALTER TABLE reference_table DISABLE TRIGGER update_value_ref;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "reference_table" because it is either a distributed table or a reference table
+ALTER TABLE reference_table ENABLE TRIGGER ALL;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "reference_table" because it is either a distributed table or a reference table
+ALTER TABLE reference_table ENABLE TRIGGER USER;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "reference_table" because it is either a distributed table or a reference table
+ALTER TABLE reference_table ENABLE TRIGGER update_value_ref;
+ERROR:  cannot execute ALTER TABLE ENABLE/DISABLE TRIGGER command for relation "reference_table" because it is either a distributed table or a reference table
 ---------------------------------------------------------------------
 -- show that we do not allow creating citus tables if the
 -- table has already triggers
@@ -98,4 +151,4 @@ SELECT master_get_table_ddl_events('test_table');
 
 -- cleanup at exit
 DROP SCHEMA table_triggers_schema CASCADE;
-NOTICE:  drop cascades to 7 other objects
+NOTICE:  drop cascades to 8 other objects
