@@ -30,17 +30,3 @@ PushOverrideEmptySearchPath(MemoryContext memoryContext)
 
 	PushOverrideSearchPath(overridePath);
 }
-
-
-/*
- * MakeQualifiedNameListFromRelationId returns qualified name list for the relation
- * with relationId.
- */
-List *
-MakeQualifiedNameListFromRelationId(Oid relationId)
-{
-	char *qualifiedRelationName = generate_qualified_relation_name(relationId);
-	List *qualifiedNameList = stringToQualifiedNameList(qualifiedRelationName);
-
-	return qualifiedNameList;
-}

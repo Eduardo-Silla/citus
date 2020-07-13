@@ -83,17 +83,3 @@ AppendNoneDistTableShardIdToName(Oid noneDistTableId, char **name)
 	uint64 shardId = GetNoneDistTableShardId(noneDistTableId);
 	AppendShardIdToName(name, shardId);
 }
-
-
-/*
- * MakeRangeVarForNoneDistTableLocalShard returns qualified RangeVar for
- * local shard relation of DISTRIBUTE_BY_NONE table with noneDistTableId.
- */
-RangeVar *
-MakeRangeVarForNoneDistTableLocalShard(Oid noneDistTableId)
-{
-	Oid shardRelationId = GetNoneDistTableLocalShardRelationId(noneDistTableId);
-	List *qualifiedNameList = MakeQualifiedNameListFromRelationId(shardRelationId);
-
-	return makeRangeVarFromNameList(qualifiedNameList);
-}
