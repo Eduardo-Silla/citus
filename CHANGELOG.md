@@ -16,7 +16,11 @@
 
 * Avoids returning incorrect results when changing roles in a transaction
 
+* Fixes a crash that may happen if no worker nodes added
+
 * Fixes a crash when aggregating empty tables
+
+* Fixes a memory leak in subtransaction memory handling
 
 * Fixes crash when using rollback to savepoint after cancellation of DML
 
@@ -29,6 +33,8 @@
 * Fixes segfault when evaluating func calls with default params on coordinator
 
 * Fixes several EXPLAIN ANALYZE issues
+
+* Fixes write queries with const expressions and COLLATE in various places
 
 * Fixes wrong cancellation message about distributed deadlock
 
