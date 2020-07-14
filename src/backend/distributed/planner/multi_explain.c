@@ -55,6 +55,7 @@
 #include "nodes/print.h"
 #include "optimizer/clauses.h"
 #include "optimizer/planner.h"
+#include "parser/scansup.h"
 #include "portability/instr_time.h"
 #include "tcop/dest.h"
 #include "tcop/tcopprot.h"
@@ -147,7 +148,6 @@ static void ExplainAnalyzeDestPutTuple(TupleDestination *self, Task *task,
 static TupleDesc ExplainAnalyzeDestTupleDescForQuery(TupleDestination *self, int
 													 queryNumber);
 static char * WrapQueryForExplainAnalyze(const char *queryString, TupleDesc tupleDesc);
-static List * SplitString(const char *str, char delimiter);
 
 /* Static Explain functions copied from explain.c */
 static void ExplainOneQuery(Query *query, int cursorOptions,
@@ -1391,7 +1391,7 @@ WrapQueryForExplainAnalyze(const char *queryString, TupleDesc tupleDesc)
  * Why not use strchr() (similar to do_text_output_multiline)? Although not banned,
  * it isn't safe if by any chance str is not null-terminated.
  */
-static List *
+List *
 SplitString(const char *str, char delimiter)
 {
 	size_t len = strnlen_s(str, RSIZE_MAX_STR);
@@ -1409,6 +1409,12 @@ SplitString(const char *str, char delimiter)
 		{
 			tokenList = lappend(tokenList, token);
 			token = makeStringInfo();
+
+			/* skip leading whitespace */
+			while (scanner_isspace(str[index + 1]))
+			{
+				index++;
+			}
 		}
 		else
 		{

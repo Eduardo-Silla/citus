@@ -410,7 +410,7 @@ MakeVariableSetStmt(const char *config)
 	VariableSetStmt *variableSetStmt = makeNode(VariableSetStmt);
 	variableSetStmt->kind = VAR_SET_VALUE;
 	variableSetStmt->name = name;
-	variableSetStmt->args = list_make1(MakeSetStatementArgument(name, value));
+	variableSetStmt->args = MakeSetStatementArgument(name, value);
 
 	return variableSetStmt;
 }
@@ -624,15 +624,15 @@ GetRoleNameFromDbRoleSetting(HeapTuple tuple, TupleDesc DbRoleSettingDescription
 
 
 /*
- * MakeSetStatementArgs parses a configuraton value and creates an A_Const
- * with an appropriate type.
+ * MakeSetStatementArgs parses a configuraton value and creates an List of A_Const
+ * Nodes with appropriate types.
  *
  * The allowed A_Const types are Integer, Float, and String.
  */
-Node *
+List *
 MakeSetStatementArgument(char *configurationName, char *configurationValue)
 {
-	Node *arg = NULL;
+	List *args = NIL;
 	char **key = &configurationName;
 
 	/* Perform a lookup on GUC variables to find the config type and units.
@@ -668,13 +668,15 @@ MakeSetStatementArgument(char *configurationName, char *configurationValue)
 				int intValue;
 				parse_int(configurationValue, &intValue,
 						  (*matchingConfig)->flags, NULL);
-				arg = makeIntConst(intValue, -1);
+				Node *arg = makeIntConst(intValue, -1);
+				args = lappend(args, arg);
 				break;
 			}
 
 			case PGC_REAL:
 			{
-				arg = makeFloatConst(configurationValue, -1);
+				Node *arg = makeFloatConst(configurationValue, -1);
+				args = lappend(args, arg);
 				break;
 			}
 
@@ -682,7 +684,15 @@ MakeSetStatementArgument(char *configurationName, char *configurationValue)
 			case PGC_STRING:
 			case PGC_ENUM:
 			{
-				arg = makeStringConst(configurationValue, -1);
+				List *configurationList = SplitString(configurationValue, ',');
+				StringInfo configuration = NULL;
+
+				foreach_ptr(configuration, configurationList)
+				{
+					char *conf = configuration->data;
+					Node *arg = makeStringConst(conf, -1);
+					args = lappend(args, arg);
+				}
 				break;
 			}
 
@@ -696,9 +706,10 @@ MakeSetStatementArgument(char *configurationName, char *configurationValue)
 	}
 	else
 	{
-		arg = makeStringConst(configurationValue, -1);
+		Node *arg = makeStringConst(configurationValue, -1);
+		args = lappend(args, arg);
 	}
-	return (Node *) arg;
+	return args;
 }
 
 
