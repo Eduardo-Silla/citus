@@ -46,6 +46,8 @@
 static void ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement);
 static void ErrorIfCitusLocalTablePartitionCommand(AlterTableCmd *alterTableCmd,
 												   Oid parentRelationId);
+static Oid GetPartitionCommandChildRelationId(AlterTableCmd *alterTableCmd,
+											  bool missingOk);
 static List * InterShardDDLTaskList(Oid leftRelationId, Oid rightRelationId,
 									const char *commandString);
 static bool AlterInvolvesPartitionColumn(AlterTableStmt *alterTableStatement,
@@ -989,7 +991,7 @@ ErrorIfUnsupportedConstraint(Relation relation, char distributionMethod,
  * ALTER TABLE REPLICA IDENTITY
  * ALTER TABLE SET ()
  * ALTER TABLE RESET ()
- * ALTER TABLE ENABLE/DISALE TRIGGER (only for citus local tables)
+ * ALTER TABLE ENABLE/DISABLE TRIGGER (only for citus local tables)
  */
 static void
 ErrorIfUnsupportedAlterTableStmt(AlterTableStmt *alterTableStatement)
@@ -1219,13 +1221,9 @@ ErrorIfCitusLocalTablePartitionCommand(AlterTableCmd *alterTableCmd, Oid parentR
 	}
 	else
 	{
-		PartitionCmd *partitionCommand = (PartitionCmd *) alterTableCmd->def;
-		RangeVar *childRelationRangeVar = partitionCommand->name;
 		bool missingOK = false;
-		Oid childRelationId = RangeVarGetRelid(childRelationRangeVar, AccessExclusiveLock,
-											   missingOK);
-
-		/* check if child relation is citus local table */
+		Oid childRelationId = GetPartitionCommandChildRelationId(alterTableCmd,
+																 missingOK);
 		if (IsCitusTable(childRelationId) && IsCitusLocalTable(childRelationId))
 		{
 			isCitusLocalTablePartitionCommand = true;
@@ -1241,6 +1239,24 @@ ErrorIfCitusLocalTablePartitionCommand(AlterTableCmd *alterTableCmd, Oid parentR
 					errmsg("cannot execute ATTACH/DETACH PARTITION command as "
 						   "citus local tables cannot be involved in partition "
 						   "relationships with other tables")));
+}
+
+
+/*
+ * GetPartitionCommandChildRelationId returns child relationId for given
+ * ALTER TABLE ATTACH / DETACH PARTITION subcommand.
+ */
+static Oid
+GetPartitionCommandChildRelationId(AlterTableCmd *alterTableCmd, bool missingOk)
+{
+	AlterTableType alterTableType PG_USED_FOR_ASSERTS_ONLY = alterTableCmd->subtype;
+	Assert(alterTableType == AT_AttachPartition || alterTableType == AT_DetachPartition);
+
+	PartitionCmd *partitionCommand = (PartitionCmd *) alterTableCmd->def;
+	RangeVar *childRelationRangeVar = partitionCommand->name;
+	Oid childRelationId = RangeVarGetRelid(childRelationRangeVar, AccessExclusiveLock,
+										   missingOk);
+	return childRelationId;
 }
 
 

@@ -113,12 +113,12 @@ GetTriggerNameById(Oid triggerId)
 {
 	char *triggerName = NULL;
 
-	HeapTuple heapTuple = GetTriggerTupleById(triggerId);
-	if (HeapTupleIsValid(heapTuple))
+	HeapTuple triggerTuple = GetTriggerTupleById(triggerId);
+	if (HeapTupleIsValid(triggerTuple))
 	{
-		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(heapTuple);
+		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(triggerTuple);
 		triggerName = pstrdup(NameStr(triggerForm->tgname));
-		heap_freetuple(heapTuple);
+		heap_freetuple(triggerTuple);
 	}
 
 	return triggerName;
@@ -709,12 +709,12 @@ GetTriggerTypeById(Oid triggerId)
 	int16 triggerType;
 	TRIGGER_CLEAR_TYPE(triggerType);
 
-	HeapTuple heapTuple = GetTriggerTupleById(triggerId);
-	if (HeapTupleIsValid(heapTuple))
+	HeapTuple triggerTuple = GetTriggerTupleById(triggerId);
+	if (HeapTupleIsValid(triggerTuple))
 	{
-		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(heapTuple);
+		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(triggerTuple);
 		triggerType = triggerForm->tgtype;
-		heap_freetuple(heapTuple);
+		heap_freetuple(triggerTuple);
 	}
 
 	return triggerType;

@@ -91,7 +91,13 @@ ConstraintIsAForeignKeyToReferenceTable(char *inputConstaintName, Oid relationId
  *        ON UPDATE CASCADE options are not used on the distribution key
  *        of the referencing column.
  * - If referencing table is a reference table, error out if the referenced
- *   table is not a reference table.
+ *   table is a distributed table.
+ * - If referencing table is a reference table and referenced table is a
+ *   citus local table:
+ *      - ON DELETE/UPDATE SET NULL, ON DELETE/UPDATE SET DEFAULT and
+ *        ON CASCADE options are not used.
+ * - If referencing or referenced table is distributed table, then the
+ *   other table is not a citus local table.
  */
 void
 ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDistMethod,
@@ -181,8 +187,7 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 					  BehaviorIsRestrictOrNoAction(constraintForm->confupdtype)))
 				{
 					ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-									errmsg("cannot specify ON DELETE/UPDATE "
-										   "\"CASCADE/SET NULL/SET DEFAULT\" "
+									errmsg("cannot specify non-restrictive "
 										   "behaviors for foreign key constraints "
 										   "from reference tables to citus local "
 										   "tables")));
@@ -203,8 +208,9 @@ ErrorIfUnsupportedForeignConstraintExists(Relation relation, char referencingDis
 							errmsg("cannot create foreign key constraint "
 								   "since foreign keys from reference tables "
 								   "to distributed tables are not supported"),
-							errdetail("A reference table can only have reference "
-									  "keys to other reference tables")));
+							errdetail("A reference table can only have foreign "
+									  "keys to other reference tables and citus "
+									  "local tables")));
 		}
 
 		/*

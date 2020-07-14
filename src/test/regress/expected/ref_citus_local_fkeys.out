@@ -32,15 +32,6 @@ SELECT create_reference_table('reference_table');
 ---------------------------------------------------------------------
 -- foreign key from citus local table to reference table --
 ---------------------------------------------------------------------
--- ensure that coordinator is added to pg_dist_node
-SET client_min_messages to ERROR;
-SELECT 1 FROM master_add_node('localhost', :master_port, groupId => 0);
- ?column?
----------------------------------------------------------------------
-        1
-(1 row)
-
-RESET client_min_messages;
 -- we support ON DELETE CASCADE behaviour in "ALTER TABLE ADD fkey citus_local_table (to reference_table) commands
 ALTER TABLE citus_local_table ADD CONSTRAINT fkey_local_to_ref FOREIGN KEY(l1) REFERENCES reference_table(r1) ON DELETE CASCADE;
 NOTICE:  executing the command locally: SELECT worker_apply_inter_shard_ddl_command (1506000, 'ref_citus_local_fkeys', 1506001, 'ref_citus_local_fkeys', 'ALTER TABLE citus_local_table ADD CONSTRAINT fkey_local_to_ref FOREIGN KEY(l1) REFERENCES reference_table(r1) ON DELETE CASCADE;')
@@ -146,19 +137,19 @@ NOTICE:  executing the command locally: INSERT INTO ref_citus_local_fkeys.refere
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1);
 NOTICE:  executing the command locally: SELECT worker_apply_inter_shard_ddl_command (1506003, 'ref_citus_local_fkeys', 1506002, 'ref_citus_local_fkeys', 'ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1);')
 ERROR:  insert or update on table "reference_table_1506003" violates foreign key constraint "fkey_ref_to_local_1506003"
--- we do not CASCADE / SET NULL / SET DEFAULT behavior in "ALTER TABLE ADD fkey reference_table (to citus_local_table)" commands
+-- we do not support CASCADE / SET NULL / SET DEFAULT behavior in "ALTER TABLE ADD fkey reference_table (to citus_local_table)" commands
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON DELETE CASCADE;
-ERROR:  cannot specify ON DELETE/UPDATE "CASCADE/SET NULL/SET DEFAULT" behaviors for foreign key constraints from reference tables to citus local tables
+ERROR:  cannot specify non-restrictive behaviors for foreign key constraints from reference tables to citus local tables
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON DELETE SET NULL;
-ERROR:  cannot specify ON DELETE/UPDATE "CASCADE/SET NULL/SET DEFAULT" behaviors for foreign key constraints from reference tables to citus local tables
+ERROR:  cannot specify non-restrictive behaviors for foreign key constraints from reference tables to citus local tables
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON DELETE SET DEFAULT;
-ERROR:  cannot specify ON DELETE/UPDATE "CASCADE/SET NULL/SET DEFAULT" behaviors for foreign key constraints from reference tables to citus local tables
+ERROR:  cannot specify non-restrictive behaviors for foreign key constraints from reference tables to citus local tables
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON UPDATE CASCADE;
-ERROR:  cannot specify ON DELETE/UPDATE "CASCADE/SET NULL/SET DEFAULT" behaviors for foreign key constraints from reference tables to citus local tables
+ERROR:  cannot specify non-restrictive behaviors for foreign key constraints from reference tables to citus local tables
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON UPDATE SET NULL;
-ERROR:  cannot specify ON DELETE/UPDATE "CASCADE/SET NULL/SET DEFAULT" behaviors for foreign key constraints from reference tables to citus local tables
+ERROR:  cannot specify non-restrictive behaviors for foreign key constraints from reference tables to citus local tables
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON UPDATE SET DEFAULT;
-ERROR:  cannot specify ON DELETE/UPDATE "CASCADE/SET NULL/SET DEFAULT" behaviors for foreign key constraints from reference tables to citus local tables
+ERROR:  cannot specify non-restrictive behaviors for foreign key constraints from reference tables to citus local tables
 INSERT INTO citus_local_table VALUES (3);
 NOTICE:  executing the command locally: INSERT INTO ref_citus_local_fkeys.citus_local_table_1506002 (l1) VALUES (3)
 -- .. but we allow such foreign keys with RESTRICT behavior
@@ -187,6 +178,25 @@ DROP TABLE citus_local_table CASCADE;
 NOTICE:  drop cascades to constraint fkey_ref_to_local on table reference_table
 NOTICE:  executing the command locally: DROP TABLE IF EXISTS ref_citus_local_fkeys.citus_local_table_xxxxx CASCADE
 NOTICE:  drop cascades to constraint fkey_ref_to_local_1506003 on table ref_citus_local_fkeys.reference_table_1506003
+BEGIN;
+  CREATE TABLE citus_local_table_1(a int, b int, unique (a,b));
+  CREATE TABLE citus_local_table_2(a int, b int, unique (a,b));
+  SELECT create_citus_local_table('citus_local_table_1');
+ create_citus_local_table
+---------------------------------------------------------------------
+
+(1 row)
+
+  SELECT create_citus_local_table('citus_local_table_2');
+ create_citus_local_table
+---------------------------------------------------------------------
+
+(1 row)
+
+  -- show that we properly handle multi column foreign keys
+  ALTER TABLE citus_local_table_1 ADD CONSTRAINT multi_fkey FOREIGN KEY (a, b) REFERENCES citus_local_table_2(a, b);
+NOTICE:  executing the command locally: SELECT worker_apply_inter_shard_ddl_command (1506004, 'ref_citus_local_fkeys', 1506005, 'ref_citus_local_fkeys', 'ALTER TABLE citus_local_table_1 ADD CONSTRAINT multi_fkey FOREIGN KEY (a, b) REFERENCES citus_local_table_2(a, b);')
+COMMIT;
 -- cleanup at exit
 DROP SCHEMA ref_citus_local_fkeys CASCADE;
-NOTICE:  drop cascades to 2 other objects
+NOTICE:  drop cascades to 6 other objects

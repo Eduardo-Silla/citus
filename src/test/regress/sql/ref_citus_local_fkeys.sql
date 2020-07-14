@@ -23,11 +23,6 @@ SELECT create_reference_table('reference_table');
 -- foreign key from citus local table to reference table --
 -----------------------------------------------------------
 
--- ensure that coordinator is added to pg_dist_node
-SET client_min_messages to ERROR;
-SELECT 1 FROM master_add_node('localhost', :master_port, groupId => 0);
-RESET client_min_messages;
-
 -- we support ON DELETE CASCADE behaviour in "ALTER TABLE ADD fkey citus_local_table (to reference_table) commands
 ALTER TABLE citus_local_table ADD CONSTRAINT fkey_local_to_ref FOREIGN KEY(l1) REFERENCES reference_table(r1) ON DELETE CASCADE;
 
@@ -97,7 +92,7 @@ INSERT INTO reference_table VALUES (3);
 -- show that we are checking for foreign key constraint while defining, this should fail
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1);
 
--- we do not CASCADE / SET NULL / SET DEFAULT behavior in "ALTER TABLE ADD fkey reference_table (to citus_local_table)" commands
+-- we do not support CASCADE / SET NULL / SET DEFAULT behavior in "ALTER TABLE ADD fkey reference_table (to citus_local_table)" commands
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON DELETE CASCADE;
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON DELETE SET NULL;
 ALTER TABLE reference_table ADD CONSTRAINT fkey_ref_to_local FOREIGN KEY(r1) REFERENCES citus_local_table(l1) ON DELETE SET DEFAULT;
@@ -125,6 +120,16 @@ ROLLBACK;
 DROP TABLE citus_local_table;
 -- this should work
 DROP TABLE citus_local_table CASCADE;
+
+BEGIN;
+  CREATE TABLE citus_local_table_1(a int, b int, unique (a,b));
+  CREATE TABLE citus_local_table_2(a int, b int, unique (a,b));
+  SELECT create_citus_local_table('citus_local_table_1');
+  SELECT create_citus_local_table('citus_local_table_2');
+
+  -- show that we properly handle multi column foreign keys
+  ALTER TABLE citus_local_table_1 ADD CONSTRAINT multi_fkey FOREIGN KEY (a, b) REFERENCES citus_local_table_2(a, b);
+COMMIT;
 
 -- cleanup at exit
 DROP SCHEMA ref_citus_local_fkeys CASCADE;

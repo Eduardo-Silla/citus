@@ -48,9 +48,11 @@ static char * GetRenameShardConstraintCommand(Oid relationId, char *constraintNa
 static void RenameShardRelationIndexes(Oid shardRelationId, uint64 shardId);
 static char * GetDropTriggerCommand(Oid relationId, char *triggerName);
 static char * GetRenameShardIndexCommand(char *indexName, uint64 shardId);
-static void RenameOrDropShardRelationTriggers(Oid shardRelationId, uint64 shardId);
+static void RenameShardRelationNonTruncateTriggers(Oid shardRelationId, uint64 shardId);
 static char * GetRenameShardTriggerCommand(Oid shardRelationId, char *triggerName,
 										   uint64 shardId);
+static void DropShardRelationTruncateTriggers(Oid shardRelationId);
+static char * GetDropTriggerCommand(Oid relationId, char *triggerName);
 static List * GetExplicitIndexNameList(Oid relationId);
 static void CreateCitusLocalTable(Oid relationId);
 static void FinalizeCitusLocalTableCreation(Oid relationId);
@@ -331,7 +333,8 @@ ConvertLocalTableToShard(Oid relationId)
 	RenameRelationToShardRelation(relationId, shardId);
 	RenameShardRelationConstraints(relationId, shardId);
 	RenameShardRelationIndexes(relationId, shardId);
-	RenameOrDropShardRelationTriggers(relationId, shardId);
+	DropShardRelationTruncateTriggers(relationId);
+	RenameShardRelationNonTruncateTriggers(relationId, shardId);
 
 	return shardId;
 }
@@ -496,60 +499,38 @@ GetRenameShardIndexCommand(char *indexName, uint64 shardId)
 
 
 /*
- * RenameOrDropShardRelationTriggers appends given shardId to the end of the
- * names of shard relation INSERT/DELETE/UPDATE triggers and drops TRUNCATE
- * triggers that are explicitly created. This function utilizes
- * GetExplicitTriggerNameList to pick the triggers to be renamed, see more
- * details in function's comment.
+ * RenameShardRelationNonTruncateTriggers appends given shardId to the end of
+ * the names of shard relation INSERT/DELETE/UPDATE triggers that are explicitly
+ * created.
  */
 static void
-RenameOrDropShardRelationTriggers(Oid shardRelationId, uint64 shardId)
+RenameShardRelationNonTruncateTriggers(Oid shardRelationId, uint64 shardId)
 {
 	List *triggerIdList = GetExplicitTriggerIdList(shardRelationId);
 
 	Oid triggerId = InvalidOid;
 	foreach_oid(triggerId, triggerIdList)
 	{
-		HeapTuple heapTuple = GetTriggerTupleById(triggerId);
+		HeapTuple triggerTuple = GetTriggerTupleById(triggerId);
 
-		Assert(HeapTupleIsValid(heapTuple));
-		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(heapTuple);
+		Assert(HeapTupleIsValid(triggerTuple));
+		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(triggerTuple);
 
 		char *triggerName = NameStr(triggerForm->tgname);
 		char *commandString = NULL;
-		if (TRIGGER_FOR_TRUNCATE(triggerForm->tgtype))
+		if (!TRIGGER_FOR_TRUNCATE(triggerForm->tgtype))
 		{
-			/* drop truncate trigger on shard relation */
-			commandString = GetDropTriggerCommand(shardRelationId, triggerName);
-		}
-		else
-		{
-			/* suffix INSERT|DELETE|UPDATE trigger with shardId */
+			/*
+			 * We create INSERT|DELETE|UPDATE triggers on shard relation too.
+			 * This is because citus prevents postgres executor to fire those
+			 * triggers. So, here we suffix such triggers on shard relation
+			 * with shardId.
+			 */
 			commandString = GetRenameShardTriggerCommand(shardRelationId, triggerName,
 														 shardId);
+			ExecuteAndLogDDLCommand(commandString);
 		}
-
-		ExecuteAndLogDDLCommand(commandString);
 	}
-}
-
-
-/*
- * GetDropTriggerCommand returns DDL command to drop the trigger with triggerName
- * on relationId.
- */
-static char *
-GetDropTriggerCommand(Oid relationId, char *triggerName)
-{
-	char *qualifiedRelationName = generate_qualified_relation_name(relationId);
-	const char *quotedTriggerName = quote_identifier(triggerName);
-
-	/* TODO:when to CASCADE ?? */
-	StringInfo dropCommand = makeStringInfo();
-	appendStringInfo(dropCommand, "DROP TRIGGER %s ON %s;",
-					 quotedTriggerName, qualifiedRelationName);
-
-	return dropCommand->data;
 }
 
 
@@ -574,6 +555,58 @@ GetRenameShardTriggerCommand(Oid shardRelationId, char *triggerName, uint64 shar
 					 quotedShardTriggerName);
 
 	return renameCommand->data;
+}
+
+
+/*
+ * DropShardRelationTruncateTriggers drops TRUNCATE triggers that are explicitly
+ * created.
+ */
+static void
+DropShardRelationTruncateTriggers(Oid shardRelationId)
+{
+	List *triggerIdList = GetExplicitTriggerIdList(shardRelationId);
+
+	Oid triggerId = InvalidOid;
+	foreach_oid(triggerId, triggerIdList)
+	{
+		HeapTuple triggerTuple = GetTriggerTupleById(triggerId);
+
+		Assert(HeapTupleIsValid(triggerTuple));
+		Form_pg_trigger triggerForm = (Form_pg_trigger) GETSTRUCT(triggerTuple);
+
+		char *triggerName = NameStr(triggerForm->tgname);
+		char *commandString = NULL;
+		if (TRIGGER_FOR_TRUNCATE(triggerForm->tgtype))
+		{
+			/*
+			 * We do not create truncate triggers on shard relation. This is
+			 * because truncate triggers are fired by utility hook and we would
+			 * need to disable them to prevent executing them twice if we don't
+			 * drop the trigger on shard relation.
+			 */
+			commandString = GetDropTriggerCommand(shardRelationId, triggerName);
+			ExecuteAndLogDDLCommand(commandString);
+		}
+	}
+}
+
+
+/*
+ * GetDropTriggerCommand returns DDL command to drop the trigger with triggerName
+ * on relationId.
+ */
+static char *
+GetDropTriggerCommand(Oid relationId, char *triggerName)
+{
+	char *qualifiedRelationName = generate_qualified_relation_name(relationId);
+	const char *quotedTriggerName = quote_identifier(triggerName);
+
+	StringInfo dropCommand = makeStringInfo();
+	appendStringInfo(dropCommand, "DROP TRIGGER %s ON %s;",
+					 quotedTriggerName, qualifiedRelationName);
+
+	return dropCommand->data;
 }
 
 
