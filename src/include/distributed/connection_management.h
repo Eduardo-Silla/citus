@@ -190,6 +190,25 @@ typedef struct ConnParamsHashEntry
 } ConnParamsHashEntry;
 
 
+/*
+ * Should be in sync with SharedConnStatsHashKey
+ */
+typedef struct ReservedConnectionCounterHashKey
+{
+	char hostname[MAX_NODE_LENGTH];
+	int32 port;
+	Oid databaseOid;
+} ReservedConnectionCounterHashKey;
+
+/* hash entry for per worker stats */
+typedef struct ReservedConnectionCounterHashEntry
+{
+	ReservedConnectionCounterHashKey key;
+
+	int reservedConnectionCount;
+} ReservedConnectionCounterHashEntry;
+
+
 /* maximum duration to wait for connection */
 extern int NodeConnectionTimeout;
 
@@ -199,9 +218,10 @@ extern int MaxCachedConnectionsPerWorker;
 /* parameters used for outbound connections */
 extern char *NodeConninfo;
 
-/* the hash table */
+/* the hash tables are externally accessiable */
 extern HTAB *ConnectionHash;
 extern HTAB *ConnParamsHash;
+extern HTAB *SessionLocalReservedConnectionCounters;
 
 /* context for all connection and transaction related memory */
 extern struct MemoryContextData *ConnectionContext;
@@ -238,6 +258,14 @@ extern MultiConnection * StartNodeUserDatabaseConnection(uint32 flags,
 														 const char *database);
 extern void CloseAllConnectionsAfterTransaction(void);
 extern void CloseNodeConnectionsAfterTransaction(char *nodeName, int nodePort);
+extern bool ConnectionToNodeExists(char *hostName, int nodePort, char *userName,
+								   char *database);
+extern bool HasAlreadyReservedConnection(const char *hostName, int nodePort,
+										 char *database);
+extern void IncrementReservedConnection(char *hostName, int nodePort, char *database);
+extern void DecrementReservedConnection(const char *hostName, int nodePort,
+										char *database);
+extern void DecrementAllReservedConnections(void);
 extern void CloseConnection(MultiConnection *connection);
 extern void ShutdownAllConnections(void);
 extern void ShutdownConnection(MultiConnection *connection);

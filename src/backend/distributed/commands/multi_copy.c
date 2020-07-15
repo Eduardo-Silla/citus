@@ -2272,6 +2272,8 @@ CitusCopyDestReceiverStartup(DestReceiver *dest, int operation,
 	copyDest->connectionStateHash = CreateConnectionStateHash(TopTransactionContext);
 
 	RecordRelationAccessIfReferenceTable(tableId, PLACEMENT_ACCESS_DML);
+
+	ReserveSharedConnectionCounterForAllPrimaryNodesIfNeeded();
 }
 
 
@@ -3569,10 +3571,10 @@ CopyGetPlacementConnection(HTAB *connectionStateHash, ShardPlacement *placement,
 	 */
 	ShardPlacementAccess *placementAccess = CreatePlacementAccess(placement,
 																  PLACEMENT_ACCESS_DML);
-	MultiConnection *connection = GetConnectionIfPlacementAccessedInXact(connectionFlags,
-																		 list_make1(
-																			 placementAccess),
-																		 NULL);
+	MultiConnection *connection =
+		GetConnectionIfPlacementAccessedInXact(connectionFlags,
+											   list_make1(placementAccess),
+											   NULL);
 	if (connection != NULL)
 	{
 		/*

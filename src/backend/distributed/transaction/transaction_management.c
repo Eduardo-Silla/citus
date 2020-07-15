@@ -467,7 +467,7 @@ ResetGlobalVariables()
 	activeSetStmts = NULL;
 	CoordinatedTransactionUses2PC = false;
 	TransactionModifiedNodeMetadata = false;
-
+	DecrementAllReservedConnections();
 	ResetWorkerErrorIndication();
 }
 

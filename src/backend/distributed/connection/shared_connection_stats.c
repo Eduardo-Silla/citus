@@ -27,6 +27,7 @@
 #include "distributed/metadata_cache.h"
 #include "distributed/placement_connection.h"
 #include "distributed/shared_connection_stats.h"
+#include "distributed/worker_manager.h"
 #include "distributed/time_constants.h"
 #include "distributed/tuplestore.h"
 #include "utils/builtins.h"
@@ -55,6 +56,8 @@ typedef struct ConnectionStatsSharedData
 	ConditionVariable waitersConditionVariable;
 } ConnectionStatsSharedData;
 
+
+/* should be in sync with ReservedConnectionCounterHashKey */
 typedef struct SharedConnStatsHashKey
 {
 	/*
@@ -106,8 +109,6 @@ static void UnLockConnectionSharedMemory(void);
 static void SharedConnectionStatsShmemInit(void);
 static size_t SharedConnectionStatsShmemSize(void);
 static bool ShouldWaitForConnection(int currentSessionConnectionCount);
-static int SharedConnectionHashCompare(const void *a, const void *b, Size keysize);
-static uint32 SharedConnectionHashHash(const void *key, Size keysize);
 
 
 PG_FUNCTION_INFO_V1(citus_remote_connection_stats);
@@ -250,7 +251,12 @@ TryToIncrementSharedConnectionCounter(const char *hostname, int port)
 	connKey.port = port;
 	connKey.databaseOid = MyDatabaseId;
 
+	bool sessionHasUnusedInBuffer =
+		HasAlreadyReservedConnection(hostname, port, get_database_name(MyDatabaseId));
+	bool usedReservedConnection = false;
+
 	LockConnectionSharedMemory(LW_EXCLUSIVE);
+
 
 	/*
 	 * As the hash map is  allocated in shared memory, it doesn't rely on palloc for
@@ -280,6 +286,12 @@ TryToIncrementSharedConnectionCounter(const char *hostname, int port)
 
 		counterIncremented = true;
 	}
+	else if (sessionHasUnusedInBuffer)
+	{
+		counterIncremented = true;
+
+		usedReservedConnection = true;
+	}
 	else if (connectionEntry->connectionCount + 1 > GetMaxSharedPoolSize())
 	{
 		/* there is no space left for this connection */
@@ -292,6 +304,11 @@ TryToIncrementSharedConnectionCounter(const char *hostname, int port)
 	}
 
 	UnLockConnectionSharedMemory();
+
+	if (usedReservedConnection)
+	{
+		DecrementReservedConnection(hostname, port, get_database_name(MyDatabaseId));
+	}
 
 	return counterIncremented;
 }
@@ -669,7 +686,54 @@ ShouldWaitForConnection(int currentConnectionCount)
 }
 
 
-static uint32
+/*
+ * ReserveSharedConnectionCounterForAllPrimaryNodesIfNeeded reserves a shared connection
+ * counter unless:
+ *  - there is at least one connection to the node
+ *  - has already reserved a connection to the node
+ */
+void
+ReserveSharedConnectionCounterForAllPrimaryNodesIfNeeded(void)
+{
+	if (SessionLocalReservedConnectionCounters == NULL)
+	{
+		ereport(ERROR, (errmsg("unexpected state for session level reserved "
+							   "connection counter hash")));
+	}
+
+	char *databaseName = get_database_name(MyDatabaseId);
+
+	/* TODO: Do we need coordinator, probably not? */
+	List *primaryWorkerNodes = ActivePrimaryWorkerNodeList(NoLock);
+
+	/* todo: should be in sync with executor */
+	primaryWorkerNodes = SortList(primaryWorkerNodes, CompareWorkerNodes);
+	ListCell *workerCell = NULL;
+	foreach(workerCell, primaryWorkerNodes)
+	{
+		WorkerNode *workerNode = (WorkerNode *) lfirst(workerCell);
+
+		if (ConnectionToNodeExists(workerNode->workerName, workerNode->workerPort,
+								   CurrentUserName(), databaseName))
+		{
+			continue;
+		}
+
+		/* TODO: we should include user name !!! */
+		if (HasAlreadyReservedConnection(workerNode->workerName, workerNode->workerPort,
+										 databaseName))
+		{
+			continue;
+		}
+
+		WaitLoopForSharedConnection(workerNode->workerName, workerNode->workerPort);
+		IncrementReservedConnection(workerNode->workerName, workerNode->workerPort,
+									databaseName);
+	}
+}
+
+
+uint32
 SharedConnectionHashHash(const void *key, Size keysize)
 {
 	SharedConnStatsHashKey *entry = (SharedConnStatsHashKey *) key;
@@ -682,7 +746,7 @@ SharedConnectionHashHash(const void *key, Size keysize)
 }
 
 
-static int
+int
 SharedConnectionHashCompare(const void *a, const void *b, Size keysize)
 {
 	SharedConnStatsHashKey *ca = (SharedConnStatsHashKey *) a;

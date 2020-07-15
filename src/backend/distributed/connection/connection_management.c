@@ -46,6 +46,8 @@ int MaxCachedConnectionsPerWorker = 1;
 
 HTAB *ConnectionHash = NULL;
 HTAB *ConnParamsHash = NULL;
+HTAB *SessionLocalReservedConnectionCounters = NULL;
+
 MemoryContext ConnectionContext = NULL;
 
 static uint32 ConnectionHashHash(const void *key, Size keysize);
@@ -91,7 +93,7 @@ static void CitusPQFinish(MultiConnection *connection);
 void
 InitializeConnectionManagement(void)
 {
-	HASHCTL info, connParamsInfo;
+	HASHCTL info, connParamsInfo, reservedCounterInfo;
 
 	/*
 	 * Create a single context for connection and transaction related memory
@@ -122,6 +124,18 @@ InitializeConnectionManagement(void)
 
 	ConnParamsHash = hash_create("citus connparams cache (host,port,user,database)",
 								 64, &connParamsInfo, hashFlags);
+
+
+	memset(&reservedCounterInfo, 0, sizeof(reservedCounterInfo));
+	info.keysize = sizeof(ReservedConnectionCounterHashKey);
+	info.entrysize = sizeof(ReservedConnectionCounterHashEntry);
+	info.hash = SharedConnectionHashHash;
+	info.match = SharedConnectionHashCompare;
+	info.hcxt = ConnectionContext;
+
+	SessionLocalReservedConnectionCounters =
+		hash_create("citus session level reserved counters (host,port,database)",
+					64, &info, hashFlags);
 }
 
 
@@ -485,6 +499,146 @@ CloseAllConnectionsAfterTransaction(void)
 			connection->forceCloseAtTransactionEnd = true;
 		}
 	}
+}
+
+
+/*
+ *  HasAlreadyReservedConnection returns true if we have already reserved at least
+ *  one shared connection in this session.
+ */
+bool
+HasAlreadyReservedConnection(const char *hostName, int nodePort, char *database)
+{
+	ReservedConnectionCounterHashKey key;
+
+	strlcpy(key.hostname, hostName, MAX_NODE_LENGTH);
+	key.port = nodePort;
+	key.databaseOid = get_database_oid(database, false);
+
+	bool found = false;
+	ReservedConnectionCounterHashEntry *entry =
+		(ReservedConnectionCounterHashEntry *)
+		hash_search(SessionLocalReservedConnectionCounters, &key, HASH_FIND, &found);
+
+	if (!found || !entry)
+	{
+		return false;
+	}
+
+	return entry->reservedConnectionCount > 0;
+}
+
+
+void
+IncrementReservedConnection(char *hostName, int nodePort, char *database)
+{
+	ReservedConnectionCounterHashKey key;
+
+	strlcpy(key.hostname, hostName, MAX_NODE_LENGTH);
+	key.port = nodePort;
+	key.databaseOid = get_database_oid(database, false);
+
+	bool found = false;
+	ReservedConnectionCounterHashEntry *entry =
+		(ReservedConnectionCounterHashEntry *) hash_search(
+			SessionLocalReservedConnectionCounters, &key, HASH_ENTER, &found);
+
+	if (!found)
+	{
+		entry->reservedConnectionCount = 0;
+	}
+
+	entry->reservedConnectionCount++;
+}
+
+
+/*
+ * This function is intended to be called when the session has reserved connections
+ * but not used them, and we are in a good position to get rid of them.
+ */
+void
+DecrementAllReservedConnections(void)
+{
+	HASH_SEQ_STATUS status;
+	ReservedConnectionCounterHashEntry *entry;
+
+	hash_seq_init(&status, SessionLocalReservedConnectionCounters);
+	while ((entry = (ReservedConnectionCounterHashEntry *) hash_seq_search(&status)) != 0)
+	{
+		while (entry->reservedConnectionCount > 0)
+		{
+			DecrementSharedConnectionCounter(entry->key.hostname, entry->key.port);
+			entry->reservedConnectionCount--;
+		}
+	}
+}
+
+
+/*
+ * DecrementReservedConnection decrements the reserved counter for the given host.
+ */
+void
+DecrementReservedConnection(const char *hostName, int nodePort, char *database)
+{
+	ReservedConnectionCounterHashKey key;
+
+	strlcpy(key.hostname, hostName, MAX_NODE_LENGTH);
+	key.port = nodePort;
+	key.databaseOid = get_database_oid(database, false);
+
+	bool found = false;
+	ReservedConnectionCounterHashEntry *entry =
+		(ReservedConnectionCounterHashEntry *) hash_search(
+			SessionLocalReservedConnectionCounters, &key, HASH_FIND, &found);
+
+	if (!found)
+	{
+		elog(INFO, "not expected??");
+	}
+	else
+	{
+		entry->reservedConnectionCount--;
+	}
+}
+
+
+/*
+ * ConnectionToNodeExists returns true if the session has at least one connection
+ * established to the node.
+ */
+bool
+ConnectionToNodeExists(char *hostName, int nodePort, char *userName, char *database)
+{
+	ConnectionHashKey key;
+	bool found = false;
+
+	strlcpy(key.hostname, hostName, MAX_NODE_LENGTH);
+	key.port = nodePort;
+	strlcpy(key.user, userName, NAMEDATALEN);
+	strlcpy(key.database, database, NAMEDATALEN);
+
+	ConnectionHashEntry *entry =
+		(ConnectionHashEntry *) hash_search(ConnectionHash, &key, HASH_FIND, &found);
+
+	if (!found)
+	{
+		return false;
+	}
+
+	dlist_iter iter;
+	dlist_head *connections = entry->connections;
+
+	dlist_foreach(iter, connections)
+	{
+		MultiConnection *connection =
+			dlist_container(MultiConnection, connectionNode, iter.cur);
+
+		if (connection->initilizationState == POOL_STATE_INITIALIZED)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 

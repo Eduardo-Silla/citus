@@ -23,5 +23,8 @@ extern void WaitLoopForSharedConnection(const char *hostname, int port);
 extern void DecrementSharedConnectionCounter(const char *hostname, int port);
 extern void IncrementSharedConnectionCounter(const char *hostname, int port);
 extern int AdaptiveConnectionManagementFlag(int activeConnectionCount);
+extern uint32 SharedConnectionHashHash(const void *key, Size keysize);
+extern int SharedConnectionHashCompare(const void *a, const void *b, Size keysize);
+extern void ReserveSharedConnectionCounterForAllPrimaryNodesIfNeeded(void);
 
 #endif /* SHARED_CONNECTION_STATS_H */
